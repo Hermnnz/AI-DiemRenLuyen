@@ -1,7 +1,7 @@
 from datetime import datetime, timezone, timedelta
 from typing import Optional, List
 from fastapi import APIRouter, Depends, Query, Header, status
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import or_
 from api.app.database import get_db
 from api.app.models.entities import (
@@ -238,7 +238,12 @@ def get_bcs_case_detail(
 
     student = db.query(User).filter(User.id == case.student_id).first()
     criteria = db.query(Criterion).filter(Criterion.campaign_id == campaign.id).order_by(Criterion.sort_order).all()
-    claims = db.query(Claim).filter(Claim.case_id == case.id).all()
+    claims = (
+        db.query(Claim)
+        .options(joinedload(Claim.evidence_files))
+        .filter(Claim.case_id == case.id)
+        .all()
+    )
     claims_dict = {cl.criterion_id: cl for cl in claims}
 
     claims_list = []
@@ -727,7 +732,12 @@ def get_campaign_appeals(
 
     result = []
     for ap, c, u, crit in appeals_records:
-        claim = db.query(Claim).filter(Claim.case_id == c.id, Claim.criterion_id == crit.id).first()
+        claim = (
+            db.query(Claim)
+            .options(joinedload(Claim.evidence_files))
+            .filter(Claim.case_id == c.id, Claim.criterion_id == crit.id)
+            .first()
+        )
         evidence_files = []
         if claim:
             evidence_files = [

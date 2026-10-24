@@ -5,7 +5,7 @@ import hashlib
 import uuid
 from fastapi import APIRouter, Depends, Form, UploadFile, File, Header, status
 from pydantic import BaseModel, Field
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from sqlalchemy.exc import IntegrityError
 from api.app.config import settings
 from api.app.database import get_db
@@ -164,7 +164,12 @@ def get_student_current(
         .all()
     )
 
-    claims = db.query(Claim).filter(Claim.case_id == case.id).all()
+    claims = (
+        db.query(Claim)
+        .options(joinedload(Claim.evidence_files))
+        .filter(Claim.case_id == case.id)
+        .all()
+    )
     claims_by_crit = {cl.criterion_id: cl for cl in claims}
 
     is_published_or_above = case.status in [

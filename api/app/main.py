@@ -1,3 +1,13 @@
+import sys
+import os
+
+_current_dir = os.path.dirname(os.path.abspath(__file__))
+_base_dir = os.path.abspath(os.path.join(_current_dir, "../.."))
+_api_dir = os.path.abspath(os.path.join(_current_dir, ".."))
+for _p in [_base_dir, _api_dir]:
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
+
 from fastapi import FastAPI, Request, status
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware

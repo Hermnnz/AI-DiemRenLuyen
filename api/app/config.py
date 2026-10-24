@@ -71,6 +71,8 @@ def normalize_database_url(url: str) -> str:
 
 
 settings = Settings()
+if os.getenv("VERCEL") and ("localhost" in settings.DATABASE_URL or "127.0.0.1" in settings.DATABASE_URL):
+    settings.DATABASE_URL = "postgresql+psycopg2://postgres.qyqyktxjoywxaijdpoit:motvannamsau@aws-0-ap-southeast-1.pooler.supabase.com:6543/postgres"
 settings.DATABASE_URL = normalize_database_url(settings.DATABASE_URL)
 
 if settings.IS_PRODUCTION:

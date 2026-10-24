@@ -1,7 +1,8 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
+  "outputDirectory": "web/dist",
   "rewrites": [
-    { "source": "/api/:path*", "destination": "https://ai-diemrenluyen-api.vercel.app/api/:path*" },
+    { "source": "/api/(.*)", "destination": "/api/index.py" },
     { "source": "/(.*)", "destination": "/index.html" }
   ]
 }

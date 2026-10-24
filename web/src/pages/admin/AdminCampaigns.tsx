@@ -18,6 +18,8 @@ import {
   Save,
 } from 'lucide-react';
 
+const isDemoMode = typeof import.meta !== 'undefined' && import.meta.env?.VITE_DEMO_MODE === 'true';
+
 export const AdminCampaigns: React.FC = () => {
   const [campaign, setCampaign] = useState<Campaign>(staffStore.getCampaign());
   const [loading, setLoading] = useState(false);
@@ -51,16 +53,23 @@ export const AdminCampaigns: React.FC = () => {
 
   const loadCampaign = async () => {
     setLoading(true);
+    setErrorMsg(null);
     try {
-      const data = await api.get<Campaign>(`/admin/campaigns/${campaign.id}`);
-      if (data) {
-        setCampaign(data);
-        syncForm(data);
+      const list = await api.get<Campaign[]>('/admin/campaigns');
+      if (list && list.length > 0) {
+        const first = list[0];
+        setCampaign(first);
+        syncForm(first);
       }
-    } catch {
-      const mock = staffStore.getCampaign();
-      setCampaign(mock);
-      syncForm(mock);
+    } catch (err: unknown) {
+      if (isDemoMode) {
+        const mock = staffStore.getCampaign();
+        setCampaign(mock);
+        syncForm(mock);
+      } else {
+        const errObj = err as { error?: { message?: string }; message?: string };
+        setErrorMsg(errObj?.error?.message || errObj?.message || 'Không thể tải danh sách đợt đánh giá.');
+      }
     } finally {
       setLoading(false);
     }
@@ -179,16 +188,16 @@ export const AdminCampaigns: React.FC = () => {
 
     try {
       setSubmitting(true);
-      try {
-        await api.put(`/admin/campaigns/${campaign.id}`, payload);
-      } catch {
+      if (isDemoMode) {
         staffStore.updateCampaign(payload);
+      } else {
+        await api.put(`/admin/campaigns/${campaign.id}`, payload);
       }
       setSuccessMsg('Đã lưu cấu hình đợt đánh giá thành công.');
       setIsEditing(false);
       await loadCampaign();
     } catch (err: unknown) {
-      const msg = (err as { error?: { message?: string } })?.error?.message || 'Lỗi khi lưu cấu hình.';
+      const msg = (err as { error?: { message?: string }; message?: string })?.error?.message || (err as { message?: string })?.message || 'Lỗi khi lưu cấu hình.';
       setErrorMsg(msg);
     } finally {
       setSubmitting(false);
@@ -200,11 +209,11 @@ export const AdminCampaigns: React.FC = () => {
       setSubmitting(true);
       setErrorMsg(null);
       let statusResult: string;
-      try {
-        const res = await api.post<{ id: string; status: string }>(`/admin/campaigns/${campaign.id}/open`);
-        statusResult = res.status;
-      } catch {
+      if (isDemoMode) {
         const res = staffStore.openCampaign();
+        statusResult = res.status;
+      } else {
+        const res = await api.post<{ id: string; status: string }>(`/admin/campaigns/${campaign.id}/open`);
         statusResult = res.status;
       }
       setShowOpenConfirm(false);
@@ -215,7 +224,7 @@ export const AdminCampaigns: React.FC = () => {
       );
       await loadCampaign();
     } catch (err: unknown) {
-      const msg = (err as { error?: { message?: string } })?.error?.message || 'Lỗi khi lên lịch/mở đợt.';
+      const msg = (err as { error?: { message?: string }; message?: string })?.error?.message || (err as { message?: string })?.message || 'Lỗi khi lên lịch/mở đợt.';
       setErrorMsg(msg);
     } finally {
       setSubmitting(false);

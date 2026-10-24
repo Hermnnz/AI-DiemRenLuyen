@@ -1,17 +1,24 @@
 import React from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext';
 import { Role } from '../api/types';
 
 interface AppLayoutProps {
-  currentRole: Role;
+  currentRole?: Role;
   onRoleChange?: (role: Role) => void;
 }
 
-export const AppLayout: React.FC<AppLayoutProps> = ({ currentRole, onRoleChange }) => {
+export const AppLayout: React.FC<AppLayoutProps> = ({ currentRole: propRole, onRoleChange }) => {
+  const { user, logout } = useAuth();
   const navigate = useNavigate();
 
-  const handleLogout = () => {
-    navigate('/login');
+  // Ưu tiên vai trò thực từ phiên làm việc đã xác thực
+  const currentRole = user?.role || propRole || 'STUDENT';
+  const isDemoMode = import.meta.env.VITE_DEMO_MODE === 'true';
+
+  const handleLogout = async () => {
+    await logout();
+    navigate('/login', { replace: true });
   };
 
   const isBcs = currentRole === 'BCS';
@@ -100,26 +107,7 @@ export const AppLayout: React.FC<AppLayoutProps> = ({ currentRole, onRoleChange 
             </nav>
           )}
 
-          {/* GVCN Header */}
-          {currentRole === 'GVCN' && (
-            <nav style={{ display: 'flex', gap: '0.75rem' }}>
-              <NavLink
-                to="/gvcn/final-scores"
-                style={({ isActive }) => ({
-                  padding: '0.4rem 0.75rem',
-                  borderRadius: '6px',
-                  fontWeight: 500,
-                  fontSize: '0.875rem',
-                  backgroundColor: isActive ? '#eff6ff' : 'transparent',
-                  color: isActive ? '#1e40af' : '#475569',
-                })}
-              >
-                Bảng điểm chính thức
-              </NavLink>
-            </nav>
-          )}
-
-          {/* ADMIN Header */}
+          {/* Admin Header Navigation */}
           {currentRole === 'ADMIN' && (
             <nav style={{ display: 'flex', gap: '0.75rem' }}>
               <NavLink
@@ -133,42 +121,83 @@ export const AppLayout: React.FC<AppLayoutProps> = ({ currentRole, onRoleChange 
                   color: isActive ? '#1e40af' : '#475569',
                 })}
               >
-                Cấu hình đợt đánh giá
+                ⚙️ Quản lý Đợt đánh giá
+              </NavLink>
+            </nav>
+          )}
+
+          {/* GVCN Header Navigation */}
+          {currentRole === 'GVCN' && (
+            <nav style={{ display: 'flex', gap: '0.75rem' }}>
+              <NavLink
+                to="/gvcn/final-scores"
+                style={({ isActive }) => ({
+                  padding: '0.4rem 0.75rem',
+                  borderRadius: '6px',
+                  fontWeight: 500,
+                  fontSize: '0.875rem',
+                  backgroundColor: isActive ? '#eff6ff' : 'transparent',
+                  color: isActive ? '#1e40af' : '#475569',
+                })}
+              >
+                🎓 Bảng điểm chính thức lớp
               </NavLink>
             </nav>
           )}
         </div>
 
-        {/* Demo Switcher & Profile */}
+        {/* User Profile & Actions */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.825rem' }}>
-            <span style={{ color: '#64748b' }}>Vai trò thử nghiệm:</span>
-            <select
-              value={currentRole}
-              onChange={(e) => {
-                const nextRole = e.target.value as Role;
-                onRoleChange?.(nextRole);
-                if (nextRole === 'STUDENT') navigate('/student');
-                else if (nextRole === 'BCS') navigate('/bcs');
-                else if (nextRole === 'GVCN') navigate('/gvcn/final-scores');
-                else if (nextRole === 'ADMIN') navigate('/admin/campaigns');
-              }}
-              style={{
-                padding: '0.25rem 0.5rem',
-                borderRadius: '4px',
-                border: '1px solid #cbd5e1',
-                fontSize: '0.825rem',
-                fontWeight: 600,
-              }}
-            >
-              <option value="STUDENT">STUDENT (Sinh viên)</option>
-              <option value="BCS">BCS (Ban cán sự lớp)</option>
-              <option value="GVCN">GVCN (Giáo viên chủ nhiệm)</option>
-              <option value="ADMIN">ADMIN (Quản trị viên)</option>
-            </select>
-          </div>
+          {/* Thông tin tài khoản đăng nhập */}
+          {user && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.85rem' }}>
+              <span style={{ fontWeight: 600, color: '#1e293b' }}>{user.full_name || user.username}</span>
+              <span
+                style={{
+                  fontSize: '0.75rem',
+                  fontWeight: 600,
+                  padding: '0.15rem 0.45rem',
+                  borderRadius: '4px',
+                  backgroundColor: '#e2e8f0',
+                  color: '#475569',
+                }}
+              >
+                {user.role}
+              </span>
+            </div>
+          )}
 
-          <button onClick={handleLogout} className="btn btn-secondary" style={{ padding: '0.25rem 0.75rem', fontSize: '0.8rem' }}>
+          {/* Demo Role Switcher - CHỈ hiển thị khi VITE_DEMO_MODE=true */}
+          {isDemoMode && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.825rem', backgroundColor: '#fef3c7', padding: '0.2rem 0.5rem', borderRadius: '4px', border: '1px solid #fde68a' }}>
+              <span style={{ color: '#b45309', fontWeight: 600 }}>DEMO MOCK:</span>
+              <select
+                value={currentRole}
+                onChange={(e) => {
+                  const nextRole = e.target.value as Role;
+                  onRoleChange?.(nextRole);
+                  if (nextRole === 'STUDENT') navigate('/student');
+                  else if (nextRole === 'BCS') navigate('/bcs');
+                  else if (nextRole === 'GVCN') navigate('/gvcn/final-scores');
+                  else if (nextRole === 'ADMIN') navigate('/admin/campaigns');
+                }}
+                style={{
+                  padding: '0.2rem 0.4rem',
+                  borderRadius: '4px',
+                  border: '1px solid #cbd5e1',
+                  fontSize: '0.8rem',
+                  fontWeight: 600,
+                }}
+              >
+                <option value="STUDENT">STUDENT (Sinh viên)</option>
+                <option value="BCS">BCS (Ban cán sự lớp)</option>
+                <option value="GVCN">GVCN (Giáo viên chủ nhiệm)</option>
+                <option value="ADMIN">ADMIN (Quản trị viên)</option>
+              </select>
+            </div>
+          )}
+
+          <button onClick={handleLogout} className="btn btn-secondary" style={{ padding: '0.35rem 0.8rem', fontSize: '0.85rem' }}>
             Đăng xuất
           </button>
         </div>

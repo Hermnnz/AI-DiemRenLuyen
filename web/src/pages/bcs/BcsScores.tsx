@@ -3,13 +3,15 @@ import { StatusBadge } from '../../components/StatusBadge';
 import { ConfirmDialog } from '../../components/ConfirmDialog';
 import { MeetingRecordModal } from '../../components/staff/MeetingRecordModal';
 import { api } from '../../api/client';
-import { ScoreboardResponse, ScoreboardItem, Meeting, MeetingKind } from '../../api/types';
+import { ScoreboardResponse, ScoreboardItem, Meeting, MeetingKind, Campaign } from '../../api/types';
 import { staffStore } from '../../components/staff/mockStaffData';
-import { Calendar, CheckCircle2, AlertCircle, AlertTriangle, Search, Send } from 'lucide-react';
+import { Calendar, CheckCircle2, AlertCircle, AlertTriangle, Search, Send, RotateCcw } from 'lucide-react';
+
+const isDemoMode = typeof import.meta !== 'undefined' && import.meta.env?.VITE_DEMO_MODE === 'true';
 
 export const BcsScores: React.FC = () => {
   const [scoreboard, setScoreboard] = useState<ScoreboardResponse>(staffStore.getScoreboard());
-  const [campaign, setCampaign] = useState(staffStore.getCampaign());
+  const [campaign, setCampaign] = useState<Campaign>(staffStore.getCampaign());
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
@@ -27,12 +29,21 @@ export const BcsScores: React.FC = () => {
 
   const loadScoreboard = async () => {
     setLoading(true);
+    setErrorMsg(null);
     try {
-      const data = await api.get<ScoreboardResponse>(`/bcs/campaigns/${campaign.id}/scoreboard`);
+      const camp = await api.get<Campaign>('/bcs/campaigns/active');
+      setCampaign(camp);
+      const data = await api.get<ScoreboardResponse>(`/bcs/campaigns/${camp.id}/scoreboard`);
       if (data) setScoreboard(data);
-    } catch {
-      setScoreboard(staffStore.getScoreboard());
-      setCampaign(staffStore.getCampaign());
+    } catch (err: unknown) {
+      if (isDemoMode) {
+        setScoreboard(staffStore.getScoreboard());
+        setCampaign(staffStore.getCampaign());
+      } else {
+        const errObj = err as { error?: { message?: string }; message?: string };
+        const msg = errObj?.error?.message || errObj?.message || 'Không thể tải bảng điểm từ máy chủ.';
+        setErrorMsg(msg);
+      }
     } finally {
       setLoading(false);
     }
@@ -64,19 +75,19 @@ export const BcsScores: React.FC = () => {
 
   const handleRecordMeeting = async (kind: MeetingKind, heldAt: string, note: string | null) => {
     try {
-      try {
+      if (isDemoMode) {
+        staffStore.recordMeeting(kind, heldAt, note);
+      } else {
         await api.post(`/bcs/campaigns/${campaign.id}/meetings`, {
           kind,
           held_at: heldAt,
           note,
         });
-      } catch {
-        staffStore.recordMeeting(kind, heldAt, note);
       }
       setSuccessMsg(`Đã ghi nhận biên bản cuộc họp: ${kind === 'BCS' ? 'Họp Ban cán sự' : 'Họp toàn thể Lớp'}.`);
       await loadScoreboard();
     } catch (err: unknown) {
-      const msg = (err as { error?: { message?: string } })?.error?.message || 'Lỗi khi ghi biên bản họp.';
+      const msg = (err as { error?: { message?: string }; message?: string })?.error?.message || (err as { message?: string })?.message || 'Lỗi khi ghi biên bản họp.';
       setErrorMsg(msg);
       throw err;
     }
@@ -86,18 +97,18 @@ export const BcsScores: React.FC = () => {
     try {
       setPublishing(true);
       setErrorMsg(null);
-      try {
+      if (isDemoMode) {
+        staffStore.publishScores();
+      } else {
         await api.post(`/bcs/campaigns/${campaign.id}/publish`, {
           expected_campaign_status: campaign.status,
         });
-      } catch {
-        staffStore.publishScores();
       }
       setShowPublishConfirm(false);
       setSuccessMsg('Đã công bố điểm rèn luyện dự kiến đến toàn bộ sinh viên trong lớp thành công!');
       await loadScoreboard();
     } catch (err: unknown) {
-      const msg = (err as { error?: { message?: string } })?.error?.message || 'Lỗi khi công bố điểm rèn luyện.';
+      const msg = (err as { error?: { message?: string }; message?: string })?.error?.message || (err as { message?: string })?.message || 'Lỗi khi công bố điểm rèn luyện.';
       setErrorMsg(msg);
     } finally {
       setPublishing(false);

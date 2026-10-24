@@ -16,6 +16,7 @@ import {
   Send,
   Scale,
   Award,
+  RefreshCw,
 } from 'lucide-react';
 
 export const StudentAppeal: React.FC = () => {
@@ -179,7 +180,24 @@ export const StudentAppeal: React.FC = () => {
     );
   }
 
-  if (!data) return null;
+  if (!data) {
+    return (
+      <div className="container" style={{ padding: '1.5rem' }}>
+        <StudentScenarioBar onScenarioChange={loadData} />
+        <div className="student-alert student-alert-danger" style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginTop: '1rem' }}>
+          <AlertTriangle size={20} />
+          <div>
+            <strong>Lỗi tải dữ liệu:</strong> {feedbackMessage?.text || 'Không thể tải thông tin khiếu nại.'}
+            <div style={{ marginTop: '0.75rem' }}>
+              <button className="btn btn-outline" onClick={loadData}>
+                <RefreshCw size={14} style={{ marginRight: '0.5rem' }} /> Thử lại
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   const { campaign, case: studentCase, criteria, claims, appeals } = data;
 

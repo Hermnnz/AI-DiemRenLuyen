@@ -19,6 +19,8 @@ import {
   ShieldAlert,
 } from 'lucide-react';
 
+const isDemoMode = typeof import.meta !== 'undefined' && import.meta.env?.VITE_DEMO_MODE === 'true';
+
 export const BcsCaseDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const [caseData, setCaseData] = useState<BcsCaseDetailType | null>(null);
@@ -48,14 +50,18 @@ export const BcsCaseDetail: React.FC = () => {
         setCaseData(data);
         initFormStates(data);
       }
-    } catch {
-      // Fallback to staffStore mock
-      const mockCase = staffStore.getCaseDetail(id);
-      if (mockCase) {
-        setCaseData(mockCase);
-        initFormStates(mockCase);
+    } catch (err: unknown) {
+      if (isDemoMode) {
+        const mockCase = staffStore.getCaseDetail(id);
+        if (mockCase) {
+          setCaseData(mockCase);
+          initFormStates(mockCase);
+        } else {
+          setErrorMsg('Không tìm thấy dữ liệu hồ sơ yêu cầu.');
+        }
       } else {
-        setErrorMsg('Không tìm thấy dữ liệu hồ sơ yêu cầu.');
+        const errObj = err as { error?: { message?: string }; message?: string };
+        setErrorMsg(errObj?.error?.message || errObj?.message || 'Không thể tải chi tiết hồ sơ từ máy chủ.');
       }
     } finally {
       setLoading(false);
@@ -137,14 +143,7 @@ export const BcsCaseDetail: React.FC = () => {
 
     try {
       setSavingCriterionId(criterionId);
-      try {
-        await api.put(`/bcs/cases/${caseData.id}/claims/${criterionId}/review`, {
-          approved_score: approvedScore,
-          reason: reason.trim() ? reason.trim() : null,
-          expected_version: caseData.version,
-        });
-      } catch {
-        // Fallback to staffStore mock
+      if (isDemoMode) {
         staffStore.reviewClaim(
           caseData.id,
           criterionId,
@@ -152,12 +151,18 @@ export const BcsCaseDetail: React.FC = () => {
           reason.trim() ? reason.trim() : null,
           caseData.version
         );
+      } else {
+        await api.put(`/bcs/cases/${caseData.id}/claims/${criterionId}/review`, {
+          approved_score: approvedScore,
+          reason: reason.trim() ? reason.trim() : null,
+          expected_version: caseData.version,
+        });
       }
 
       setSuccessMsg(`Đã lưu quyết định chấm tiêu chí [${claim.criterion.code}].`);
       await loadCase();
     } catch (err: unknown) {
-      const msg = (err as { error?: { message?: string } })?.error?.message || 'Lỗi khi lưu điểm tiêu chí.';
+      const msg = (err as { error?: { message?: string }; message?: string })?.error?.message || (err as { message?: string })?.message || 'Lỗi khi lưu điểm tiêu chí.';
       setErrorMsg(msg);
     } finally {
       setSavingCriterionId(null);
@@ -169,20 +174,20 @@ export const BcsCaseDetail: React.FC = () => {
     if (!caseData) return;
     setErrorMsg(null);
     try {
-      try {
+      if (isDemoMode) {
+        staffStore.createSupplementRequest(caseData.id, kind, criterionId, reason, caseData.version);
+      } else {
         await api.post(`/bcs/cases/${caseData.id}/supplement-requests`, {
           kind,
           criterion_id: criterionId,
           reason,
           expected_version: caseData.version,
         });
-      } catch {
-        staffStore.createSupplementRequest(caseData.id, kind, criterionId, reason, caseData.version);
       }
       setSuccessMsg(`Đã gửi yêu cầu bổ sung ${kind === 'INFO' ? 'thông tin' : 'minh chứng'} đến sinh viên.`);
       await loadCase();
     } catch (err: unknown) {
-      const msg = (err as { error?: { message?: string } })?.error?.message || 'Lỗi khi tạo yêu cầu bổ sung.';
+      const msg = (err as { error?: { message?: string }; message?: string })?.error?.message || (err as { message?: string })?.message || 'Lỗi khi tạo yêu cầu bổ sung.';
       setErrorMsg(msg);
       throw err;
     }
@@ -221,18 +226,18 @@ export const BcsCaseDetail: React.FC = () => {
     }
 
     try {
-      try {
+      if (isDemoMode) {
+        staffStore.completeReview(caseData.id, caseData.version);
+      } else {
         await api.post(`/bcs/cases/${caseData.id}/complete-review`, {
           expected_version: caseData.version,
         });
-      } catch {
-        staffStore.completeReview(caseData.id, caseData.version);
       }
       setShowCompleteConfirm(false);
       setSuccessMsg('Đã hoàn tất kiểm tra hồ sơ và chuyển sang trạng thái ĐÃ DUYỆT ĐIỂM DỰ KIẾN (PROPOSED).');
       await loadCase();
     } catch (err: unknown) {
-      const msg = (err as { error?: { message?: string } })?.error?.message || 'Lỗi khi hoàn tất kiểm tra hồ sơ.';
+      const msg = (err as { error?: { message?: string }; message?: string })?.error?.message || (err as { message?: string })?.message || 'Lỗi khi hoàn tất kiểm tra hồ sơ.';
       setErrorMsg(msg);
     }
   };

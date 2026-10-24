@@ -463,6 +463,24 @@ paths:
         '422':
           $ref: '#/components/responses/Error422'
 
+  /bcs/campaigns/active:
+    get:
+      summary: Lấy đợt đánh giá hiện tại của lớp do BCS phụ trách
+      operationId: getBcsActiveCampaign
+      responses:
+        '200':
+          description: Đợt đánh giá hiện tại
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Campaign'
+        '401':
+          $ref: '#/components/responses/Error401'
+        '403':
+          $ref: '#/components/responses/Error403'
+        '404':
+          $ref: '#/components/responses/Error404'
+
   /bcs/campaigns/{id}/overview:
     get:
       summary: Lấy tổng quan thống kê đợt đánh giá cho BCS
@@ -999,6 +1017,24 @@ paths:
         '409':
           $ref: '#/components/responses/Error409'
 
+  /gvcn/campaigns/active:
+    get:
+      summary: Lấy đợt đánh giá hiện tại của lớp do GVCN phụ trách
+      operationId: getGvcnActiveCampaign
+      responses:
+        '200':
+          description: Đợt đánh giá hiện tại
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Campaign'
+        '401':
+          $ref: '#/components/responses/Error401'
+        '403':
+          $ref: '#/components/responses/Error403'
+        '404':
+          $ref: '#/components/responses/Error404'
+
   /gvcn/campaigns/{id}/final-scores.csv:
     get:
       summary: GVCN tải bảng điểm chốt dạng CSV
@@ -1072,6 +1108,22 @@ paths:
                     format: date-time
 
   /admin/campaigns:
+    get:
+      summary: ADMIN lấy danh sách các đợt đánh giá
+      operationId: listCampaigns
+      responses:
+        '200':
+          description: Danh sách đợt đánh giá
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Campaign'
+        '401':
+          $ref: '#/components/responses/Error401'
+        '403':
+          $ref: '#/components/responses/Error403'
     post:
       summary: ADMIN tạo đợt đánh giá mới kèm danh sách tiêu chí
       operationId: createCampaign
@@ -1096,6 +1148,29 @@ paths:
           $ref: '#/components/responses/Error422'
 
   /admin/campaigns/{id}:
+    get:
+      summary: ADMIN lấy chi tiết đợt đánh giá
+      operationId: getCampaignById
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Chi tiết đợt đánh giá
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Campaign'
+        '401':
+          $ref: '#/components/responses/Error401'
+        '403':
+          $ref: '#/components/responses/Error403'
+        '404':
+          $ref: '#/components/responses/Error404'
     put:
       summary: ADMIN cập nhật đợt đánh giá khi ở trạng thái DRAFT
       operationId: updateCampaign

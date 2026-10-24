@@ -2,9 +2,11 @@ import React, { useState, useEffect } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { StatusBadge } from '../../components/StatusBadge';
 import { api } from '../../api/client';
-import { BcsCaseListItem } from '../../api/types';
+import { BcsCaseListItem, Campaign } from '../../api/types';
 import { staffStore } from '../../components/staff/mockStaffData';
-import { Search, Filter, RotateCcw } from 'lucide-react';
+import { Search, Filter, RotateCcw, AlertCircle } from 'lucide-react';
+
+const isDemoMode = typeof import.meta !== 'undefined' && import.meta.env?.VITE_DEMO_MODE === 'true';
 
 export const BcsCases: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -20,42 +22,45 @@ export const BcsCases: React.FC = () => {
   const [cases, setCases] = useState<BcsCaseListItem[]>([]);
   const [total, setTotal] = useState<number>(0);
   const [loading, setLoading] = useState<boolean>(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const loadCases = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const campaign = await api.get<Campaign>('/bcs/campaigns/active');
+      const queryParams = new URLSearchParams();
+      if (statusFilter && statusFilter !== 'ALL') queryParams.set('status', statusFilter);
+      if (searchQuery.trim()) queryParams.set('q', searchQuery.trim());
+      queryParams.set('page', page.toString());
+      queryParams.set('page_size', pageSize.toString());
+
+      const res = await api.get<{ total: number; page: number; page_size: number; items: BcsCaseListItem[] }>(
+        `/bcs/campaigns/${campaign.id}/cases?${queryParams.toString()}`
+      );
+      if (res && res.items) {
+        setCases(res.items);
+        setTotal(res.total);
+      }
+    } catch (err: unknown) {
+      if (isDemoMode) {
+        const res = staffStore.getCases(statusFilter, searchQuery, page, pageSize);
+        setCases(res.items);
+        setTotal(res.total);
+      } else {
+        const errObj = err as { error?: { message?: string }; message?: string };
+        const msg = errObj?.error?.message || errObj?.message || 'Không thể tải danh sách hồ sơ từ máy chủ.';
+        setError(msg);
+        setCases([]);
+        setTotal(0);
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    let mounted = true;
-    const loadCases = async () => {
-      setLoading(true);
-      try {
-        const campaign = staffStore.getCampaign();
-        const queryParams = new URLSearchParams();
-        if (statusFilter && statusFilter !== 'ALL') queryParams.set('status', statusFilter);
-        if (searchQuery.trim()) queryParams.set('q', searchQuery.trim());
-        queryParams.set('page', page.toString());
-        queryParams.set('page_size', pageSize.toString());
-
-        const res = await api.get<{ total: number; page: number; page_size: number; items: BcsCaseListItem[] }>(
-          `/bcs/campaigns/${campaign.id}/cases?${queryParams.toString()}`
-        );
-        if (mounted && res && res.items) {
-          setCases(res.items);
-          setTotal(res.total);
-        }
-      } catch {
-        // Fallback to staffStore mock
-        if (mounted) {
-          const res = staffStore.getCases(statusFilter, searchQuery, page, pageSize);
-          setCases(res.items);
-          setTotal(res.total);
-        }
-      } finally {
-        if (mounted) setLoading(false);
-      }
-    };
-
     loadCases();
-    return () => {
-      mounted = false;
-    };
   }, [statusFilter, searchQuery, page, pageSize]);
 
   const handleStatusChange = (newStatus: string) => {
@@ -174,6 +179,16 @@ export const BcsCases: React.FC = () => {
                 <tr>
                   <td colSpan={8} style={{ padding: '2rem', textAlign: 'center', color: '#64748b' }}>
                     Đang tải danh sách hồ sơ...
+                  </td>
+                </tr>
+              ) : error ? (
+                <tr>
+                  <td colSpan={8} style={{ padding: '2.5rem', textAlign: 'center', color: '#dc2626' }}>
+                    <AlertCircle size={32} style={{ margin: '0 auto 0.5rem' }} />
+                    <div style={{ fontWeight: 600 }}>{error}</div>
+                    <button onClick={loadCases} className="btn btn-primary" style={{ marginTop: '0.75rem', fontSize: '0.8rem', display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}>
+                      <RotateCcw size={14} /> Thử lại
+                    </button>
                   </td>
                 </tr>
               ) : cases.length === 0 ? (

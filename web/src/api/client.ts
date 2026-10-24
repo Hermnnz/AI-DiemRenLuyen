@@ -5,7 +5,7 @@ class ApiClient {
   private csrfToken: string | null = null;
 
   constructor() {
-    this.baseUrl = import.meta.env.VITE_API_BASE_URL || '/api/v1';
+    this.baseUrl = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_API_BASE_URL) || '/api/v1';
   }
 
   public setCsrfToken(token: string | null) {
@@ -45,6 +45,13 @@ class ApiClient {
     });
 
     if (!response.ok) {
+      if (response.status === 401) {
+        this.csrfToken = null;
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('auth:unauthorized'));
+        }
+      }
+
       let errorData: ErrorResponse;
       try {
         errorData = await response.json();

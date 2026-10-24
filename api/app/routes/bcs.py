@@ -18,6 +18,7 @@ from api.app.models.entities import (
     ClassMember,
 )
 from api.app.schemas import (
+    CampaignSchema,
     BcsCampaignOverview,
     BcsCaseListItem,
     BcsCaseListResponse,
@@ -66,6 +67,58 @@ def _verify_bcs_class(user: User, class_ids: List[str], campaign_class_id: str):
             code="FORBIDDEN",
             message="Bạn không có quyền quản lý đợt đánh giá của lớp này.",
         )
+
+
+@router.get("/campaigns/active", response_model=CampaignSchema)
+def get_bcs_active_campaign(
+    auth_data: tuple[User, list[str]] = Depends(require_roles("BCS")),
+    db: Session = Depends(get_db),
+):
+    user, class_ids = auth_data
+    campaign = (
+        db.query(Campaign)
+        .filter(Campaign.class_id.in_(class_ids))
+        .order_by(Campaign.created_at.desc())
+        .first()
+    )
+    if not campaign:
+        raise AppError(status_code=404, code="NOT_FOUND", message="Không tìm thấy đợt đánh giá nào cho lớp của bạn.")
+
+    crit_list = (
+        db.query(Criterion)
+        .filter(Criterion.campaign_id == campaign.id)
+        .order_by(Criterion.sort_order)
+        .all()
+    )
+    crit_schemas = [
+        CriterionSchema(
+            id=c.id,
+            campaign_id=c.campaign_id,
+            code=c.code,
+            title=c.title,
+            description=c.description,
+            max_score=format_score(c.max_score),
+            requires_evidence=c.requires_evidence,
+            sort_order=c.sort_order,
+        )
+        for c in crit_list
+    ]
+
+    return CampaignSchema(
+        id=campaign.id,
+        class_id=campaign.class_id,
+        title=campaign.title,
+        term=campaign.term,
+        status=campaign.status,
+        open_at=format_datetime(campaign.open_at),
+        submission_deadline_at=format_datetime(campaign.submission_deadline_at),
+        supplement_period_hours=campaign.supplement_period_hours,
+        appeal_period_hours=campaign.appeal_period_hours,
+        reminder_after_hours=campaign.reminder_after_hours,
+        max_info_rounds=campaign.max_info_rounds,
+        max_proof_rounds=campaign.max_proof_rounds,
+        criteria=crit_schemas,
+    )
 
 
 @router.get("/campaigns/{id}/overview", response_model=BcsCampaignOverview)

@@ -1,5 +1,6 @@
 from datetime import datetime, timezone
 from decimal import Decimal
+from typing import List
 from fastapi import APIRouter, Depends, status
 from sqlalchemy.orm import Session
 from api.app.database import get_db
@@ -261,4 +262,98 @@ def trigger_open_campaign(
     return OpenCampaignResponse(
         id=campaign.id,
         status=campaign.status,
+    )
+
+
+@router.get("/campaigns", response_model=List[CampaignSchema])
+def list_campaigns(
+    auth_data: tuple[User, list[str]] = Depends(require_roles("ADMIN")),
+    db: Session = Depends(get_db),
+):
+    campaigns = db.query(Campaign).order_by(Campaign.created_at.desc()).all()
+    result = []
+    for camp in campaigns:
+        crit_list = (
+            db.query(Criterion)
+            .filter(Criterion.campaign_id == camp.id)
+            .order_by(Criterion.sort_order)
+            .all()
+        )
+        crit_schemas = [
+            CriterionSchema(
+                id=c.id,
+                campaign_id=c.campaign_id,
+                code=c.code,
+                title=c.title,
+                description=c.description,
+                max_score=format_score(c.max_score),
+                requires_evidence=c.requires_evidence,
+                sort_order=c.sort_order,
+            )
+            for c in crit_list
+        ]
+        result.append(
+            CampaignSchema(
+                id=camp.id,
+                class_id=camp.class_id,
+                title=camp.title,
+                term=camp.term,
+                status=camp.status,
+                open_at=format_datetime(camp.open_at),
+                submission_deadline_at=format_datetime(camp.submission_deadline_at),
+                supplement_period_hours=camp.supplement_period_hours,
+                appeal_period_hours=camp.appeal_period_hours,
+                reminder_after_hours=camp.reminder_after_hours,
+                max_info_rounds=camp.max_info_rounds,
+                max_proof_rounds=camp.max_proof_rounds,
+                criteria=crit_schemas,
+            )
+        )
+    return result
+
+
+@router.get("/campaigns/{id}", response_model=CampaignSchema)
+def get_campaign_by_id(
+    id: str,
+    auth_data: tuple[User, list[str]] = Depends(require_roles("ADMIN")),
+    db: Session = Depends(get_db),
+):
+    camp = db.query(Campaign).filter(Campaign.id == id).first()
+    if not camp:
+        raise AppError(status_code=404, code="NOT_FOUND", message="Không tìm thấy đợt đánh giá.")
+
+    crit_list = (
+        db.query(Criterion)
+        .filter(Criterion.campaign_id == camp.id)
+        .order_by(Criterion.sort_order)
+        .all()
+    )
+    crit_schemas = [
+        CriterionSchema(
+            id=c.id,
+            campaign_id=c.campaign_id,
+            code=c.code,
+            title=c.title,
+            description=c.description,
+            max_score=format_score(c.max_score),
+            requires_evidence=c.requires_evidence,
+            sort_order=c.sort_order,
+        )
+        for c in crit_list
+    ]
+
+    return CampaignSchema(
+        id=camp.id,
+        class_id=camp.class_id,
+        title=camp.title,
+        term=camp.term,
+        status=camp.status,
+        open_at=format_datetime(camp.open_at),
+        submission_deadline_at=format_datetime(camp.submission_deadline_at),
+        supplement_period_hours=camp.supplement_period_hours,
+        appeal_period_hours=camp.appeal_period_hours,
+        reminder_after_hours=camp.reminder_after_hours,
+        max_info_rounds=camp.max_info_rounds,
+        max_proof_rounds=camp.max_proof_rounds,
+        criteria=crit_schemas,
     )

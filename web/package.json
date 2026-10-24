@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "test": "node src/tests/student/runTests.mjs && node src/tests/staff/runTests.mjs"
+    "test": "node src/tests/student/runTests.mjs && node src/tests/staff/runTests.mjs && node src/tests/integration/runTests.mjs"
   },
   "dependencies": {
     "clsx": "^2.1.1",

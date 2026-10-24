@@ -3,12 +3,14 @@ import { StatusBadge } from '../../components/StatusBadge';
 import { ConfirmDialog } from '../../components/ConfirmDialog';
 import { SafeFilePreviewModal } from '../../components/staff/SafeFilePreviewModal';
 import { api } from '../../api/client';
-import { AppealDetailItem, AppealResolution, EvidenceFile } from '../../api/types';
+import { AppealDetailItem, AppealResolution, EvidenceFile, Campaign } from '../../api/types';
 import { staffStore } from '../../components/staff/mockStaffData';
 import { Scale, CheckCircle2, AlertTriangle, Eye, ShieldCheck, Check, Lock } from 'lucide-react';
 
+const isDemoMode = typeof import.meta !== 'undefined' && import.meta.env?.VITE_DEMO_MODE === 'true';
+
 export const BcsAppeals: React.FC = () => {
-  const [campaign, setCampaign] = useState(staffStore.getCampaign());
+  const [campaign, setCampaign] = useState<Campaign>(staffStore.getCampaign());
   const [appeals, setAppeals] = useState<AppealDetailItem[]>(staffStore.getAppeals());
   const [loading, setLoading] = useState(false);
   const [filter, setFilter] = useState<'ALL' | 'OPEN' | 'RESOLVED'>('ALL');
@@ -32,12 +34,21 @@ export const BcsAppeals: React.FC = () => {
 
   const loadAppeals = async () => {
     setLoading(true);
+    setErrorMsg(null);
     try {
-      const data = await api.get<AppealDetailItem[]>(`/bcs/campaigns/${campaign.id}/appeals`);
+      const camp = await api.get<Campaign>('/bcs/campaigns/active');
+      setCampaign(camp);
+      const data = await api.get<AppealDetailItem[]>(`/bcs/campaigns/${camp.id}/appeals`);
       if (data) setAppeals(data);
-    } catch {
-      setAppeals(staffStore.getAppeals());
-      setCampaign(staffStore.getCampaign());
+    } catch (err: unknown) {
+      if (isDemoMode) {
+        setAppeals(staffStore.getAppeals());
+        setCampaign(staffStore.getCampaign());
+      } else {
+        const errObj = err as { error?: { message?: string }; message?: string };
+        const msg = errObj?.error?.message || errObj?.message || 'Không thể tải danh sách khiếu nại từ máy chủ.';
+        setErrorMsg(msg);
+      }
     } finally {
       setLoading(false);
     }
@@ -82,20 +93,20 @@ export const BcsAppeals: React.FC = () => {
 
     try {
       setSubmittingAppealId(appealId);
-      try {
+      if (isDemoMode) {
+        staffStore.resolveAppeal(appealId, resolution, resolution === 'ADJUST' ? newScore : null, reason);
+      } else {
         await api.post(`/bcs/appeals/${appealId}/resolve`, {
           resolution,
           new_score: resolution === 'ADJUST' ? newScore : null,
           reason,
         });
-      } catch {
-        staffStore.resolveAppeal(appealId, resolution, resolution === 'ADJUST' ? newScore : null, reason);
       }
 
       setSuccessMsg(`Đã giải quyết khiếu nại thành công (${resolution === 'KEEP' ? 'Giữ nguyên' : 'Điều chỉnh điểm'}).`);
       await loadAppeals();
     } catch (err: unknown) {
-      const msg = (err as { error?: { message?: string } })?.error?.message || 'Lỗi khi giải quyết khiếu nại.';
+      const msg = (err as { error?: { message?: string }; message?: string })?.error?.message || (err as { message?: string })?.message || 'Lỗi khi giải quyết khiếu nại.';
       setErrorMsg(msg);
     } finally {
       setSubmittingAppealId(null);
@@ -106,17 +117,16 @@ export const BcsAppeals: React.FC = () => {
     try {
       setFinalizing(true);
       setErrorMsg(null);
-      try {
-        await api.post(`/bcs/campaigns/${campaign.id}/finalize`);
-      } catch {
+      if (isDemoMode) {
         staffStore.finalizeCampaign();
+      } else {
+        await api.post(`/bcs/campaigns/${campaign.id}/finalize`);
       }
       setShowFinalizeConfirm(false);
       setSuccessMsg('Đã chốt bảng điểm chính thức toàn bộ lớp thành công! Giáo viên chủ nhiệm đã có thể xem và tải CSV.');
-      setCampaign(staffStore.getCampaign());
       await loadAppeals();
     } catch (err: unknown) {
-      const msg = (err as { error?: { message?: string } })?.error?.message || 'Lỗi khi chốt điểm đợt đánh giá.';
+      const msg = (err as { error?: { message?: string }; message?: string })?.error?.message || (err as { message?: string })?.message || 'Lỗi khi chốt điểm đợt đánh giá.';
       setErrorMsg(msg);
     } finally {
       setFinalizing(false);

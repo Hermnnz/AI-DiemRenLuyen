@@ -1,26 +1,58 @@
 import React, { useState, useEffect } from 'react';
 import { StatusBadge } from '../../components/StatusBadge';
 import { api } from '../../api/client';
-import { Campaign } from '../../api/types';
+import { Campaign, CaseStatus } from '../../api/types';
 import { staffStore, GvcnScoreRecord } from '../../components/staff/mockStaffData';
-import { Download, Clock, CheckCircle2, Search, FileSpreadsheet, Lock } from 'lucide-react';
+import { Download, Clock, CheckCircle2, Search, FileSpreadsheet, Lock, AlertCircle, RotateCcw } from 'lucide-react';
+
+const isDemoMode = typeof import.meta !== 'undefined' && import.meta.env?.VITE_DEMO_MODE === 'true';
 
 export const GvcnFinalScores: React.FC = () => {
-  const [campaign, setCampaign] = useState<Campaign>(staffStore.getCampaign());
-  const [records, setRecords] = useState<GvcnScoreRecord[]>(staffStore.getGvcnFinalScores());
-  const [loading, setLoading] = useState(false);
+  const [campaign, setCampaign] = useState<Campaign | null>(isDemoMode ? staffStore.getCampaign() : null);
+  const [records, setRecords] = useState<GvcnScoreRecord[]>(isDemoMode ? staffStore.getGvcnFinalScores() : []);
+  const [loading, setLoading] = useState(true);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [downloading, setDownloading] = useState(false);
 
   const loadData = async () => {
     setLoading(true);
+    setErrorMsg(null);
     try {
-      const camp = await api.get<Campaign>(`/admin/campaigns/${campaign.id}`);
-      if (camp) setCampaign(camp);
-    } catch {
-      setCampaign(staffStore.getCampaign());
+      const camp = await api.get<Campaign>('/gvcn/campaigns/active');
+      setCampaign(camp);
+      if (camp.status === 'FINALIZED') {
+        const csvBlob = await api.get<Blob>(`/gvcn/campaigns/${camp.id}/final-scores.csv`);
+        const text = await (csvBlob instanceof Blob ? csvBlob.text() : String(csvBlob));
+        const lines = text.trim().split('\n').filter((l) => l.trim().length > 0);
+        const dataRows = lines.slice(1);
+        const parsed: GvcnScoreRecord[] = dataRows.map((line, idx) => {
+          const parts = line.split(',').map((p) => p.replace(/^"|"$/g, '').trim());
+          return {
+            stt: idx + 1,
+            student_code: parts[0] || '',
+            student_name: parts[1] || '',
+            status: (parts[2] || 'FINALIZED') as CaseStatus,
+            claimed_total: parts[3] || '0.00',
+            proposed_total: parts[4] || '0.00',
+            final_total: parts[5] || '0.00',
+            note: parts[6] || '',
+          };
+        });
+        setRecords(parsed);
+      } else {
+        setRecords([]);
+      }
+    } catch (err: unknown) {
+      if (isDemoMode) {
+        setCampaign(staffStore.getCampaign());
+        setRecords(staffStore.getGvcnFinalScores());
+      } else {
+        const errObj = err as { error?: { message?: string }; message?: string };
+        const msg = errObj?.error?.message || errObj?.message || 'Không thể tải bảng điểm từ máy chủ.';
+        setErrorMsg(msg);
+      }
     } finally {
-      setRecords(staffStore.getGvcnFinalScores());
       setLoading(false);
     }
   };
@@ -29,37 +61,65 @@ export const GvcnFinalScores: React.FC = () => {
     loadData();
   }, []);
 
-  const isFinalized = campaign.status === 'FINALIZED';
+  const isFinalized = campaign?.status === 'FINALIZED';
 
   // Export CSV handler
   const handleExportCsv = async () => {
-    if (!isFinalized) return;
+    if (!campaign || !isFinalized) return;
     try {
       setDownloading(true);
+      setErrorMsg(null);
       let csvBlob: Blob;
-      try {
-        const responseBlob = await api.get<Blob>(`/gvcn/campaigns/${campaign.id}/final-scores.csv`);
-        csvBlob = responseBlob instanceof Blob ? responseBlob : new Blob([responseBlob], { type: 'text/csv;charset=utf-8;' });
-      } catch {
-        // Fallback to generated CSV from staffStore
+      if (isDemoMode) {
         const csvContent = staffStore.exportGvcnCsvContent();
         csvBlob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      } else {
+        const responseBlob = await api.get<Blob>(`/gvcn/campaigns/${campaign.id}/final-scores.csv`);
+        csvBlob = responseBlob instanceof Blob ? responseBlob : new Blob([responseBlob], { type: 'text/csv;charset=utf-8;' });
       }
 
       const url = URL.createObjectURL(csvBlob);
       const link = document.createElement('a');
       link.href = url;
-      link.setAttribute('download', `Bang_Diem_DRL_Chinh_Thuc_${campaign.term}_${campaign.class_id}.csv`);
+      link.setAttribute('download', `Bang_Diem_DRL_Chinh_Thuc_${campaign.term}.csv`);
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
       URL.revokeObjectURL(url);
-    } catch (err) {
-      console.error('Lỗi tải CSV:', err);
+    } catch (err: unknown) {
+      const errObj = err as { error?: { message?: string }; message?: string };
+      setErrorMsg(errObj?.error?.message || errObj?.message || 'Lỗi khi tải bảng điểm CSV.');
     } finally {
       setDownloading(false);
     }
   };
+
+  if (loading && !campaign) {
+    return (
+      <div className="card" style={{ padding: '2.5rem', textAlign: 'center' }}>
+        <p style={{ color: '#64748b' }}>Đang nạp thông tin đợt đánh giá...</p>
+      </div>
+    );
+  }
+
+  if (errorMsg && !campaign) {
+    return (
+      <div className="card" style={{ padding: '2rem', textAlign: 'center' }}>
+        <AlertCircle size={40} color="#dc2626" style={{ margin: '0 auto 1rem' }} />
+        <h3 style={{ fontSize: '1.15rem', fontWeight: 600, color: '#0f172a', marginBottom: '0.5rem' }}>
+          Lỗi tải bảng điểm
+        </h3>
+        <p style={{ color: '#64748b', fontSize: '0.9rem', marginBottom: '1.25rem' }}>
+          {errorMsg}
+        </p>
+        <button className="btn btn-primary" onClick={loadData} style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem' }}>
+          <RotateCcw size={16} /> Thử lại
+        </button>
+      </div>
+    );
+  }
+
+  if (!campaign) return null;
 
   // Filtered records
   const filteredRecords = records.filter((r) => {
@@ -101,7 +161,7 @@ export const GvcnFinalScores: React.FC = () => {
             <StatusBadge status={campaign.status} />
           </div>
           <p style={{ color: '#64748b', fontSize: '0.875rem' }}>
-            Lớp: <strong>LOP-DEMO</strong> | Học kỳ: <strong>{campaign.term}</strong> | Phân quyền: <strong>Chỉ đọc bảng điểm sau khi chốt</strong>
+            Học kỳ: <strong>{campaign.term}</strong> | Đợt: <strong>{campaign.title}</strong> | Phân quyền: <strong>Chỉ đọc bảng điểm sau khi chốt</strong>
           </p>
         </div>
 

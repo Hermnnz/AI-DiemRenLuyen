@@ -18,9 +18,19 @@ export const SafeFilePreviewModal: React.FC<SafeFilePreviewModalProps> = ({
   const isImage = file.mime_type.startsWith('image/');
   const isPdf = file.mime_type.includes('pdf');
   const sizeKb = (file.size_bytes / 1024).toFixed(1);
+  const fileUrl = `/api/v1/files/${file.id}`;
 
   const handleDownload = () => {
-    // In production, triggers GET /api/v1/files/{fileId}
+    const isDemo = typeof import.meta !== 'undefined' && import.meta.env?.VITE_DEMO_MODE === 'true';
+    if (!isDemo && !file.id.startsWith('mock-')) {
+      const a = document.createElement('a');
+      a.href = fileUrl;
+      a.download = file.original_name;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      return;
+    }
     // For demo/mock preview, download a placeholder or sample blob
     const element = document.createElement('a');
     const blob = new Blob([`[Nội dung tệp mô phỏng an toàn: ${file.original_name}]`], {
@@ -161,19 +171,30 @@ export const SafeFilePreviewModal: React.FC<SafeFilePreviewModalProps> = ({
               style={{
                 textAlign: 'center',
                 backgroundColor: '#ffffff',
-                padding: '1rem',
+                padding: '0.5rem',
                 borderRadius: '6px',
                 border: '1px solid #cbd5e1',
                 maxWidth: '100%',
               }}
             >
+              <img
+                src={fileUrl}
+                alt={file.original_name}
+                style={{ maxWidth: '100%', maxHeight: '340px', objectFit: 'contain', borderRadius: '4px', display: 'block', margin: '0 auto' }}
+                onError={(e) => {
+                  (e.currentTarget as HTMLElement).style.display = 'none';
+                  const fallback = document.getElementById(`fallback-${file.id}`);
+                  if (fallback) fallback.style.display = 'flex';
+                }}
+              />
               <div
+                id={`fallback-${file.id}`}
                 style={{
+                  display: file.id.startsWith('mock-') ? 'flex' : 'none',
                   width: '100%',
                   height: '240px',
                   backgroundColor: '#e2e8f0',
                   borderRadius: '4px',
-                  display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
                   color: '#475569',

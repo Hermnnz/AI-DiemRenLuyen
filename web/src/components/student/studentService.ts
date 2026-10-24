@@ -36,17 +36,26 @@ async function getApi() {
 }
 
 class StudentService {
-  private mode: OperationMode = 'mock';
+  // Mặc định là 'live'. Chỉ dùng 'mock' khi VITE_DEMO_MODE=true hoặc được bật tường minh trong môi trường test
+  private mode: OperationMode = 'live';
   private currentScenario: string = 'DRAFT';
 
   constructor() {
-    // Tải cấu hình từ localStorage nếu có (và nếu đang chạy trong môi trường có localStorage)
-    if (typeof localStorage !== 'undefined') {
-      const savedMode = localStorage.getItem(STORAGE_KEY_MODE) as OperationMode | null;
-      if (savedMode === 'live' || savedMode === 'mock') {
-        this.mode = savedMode;
-      }
-      const savedScenario = localStorage.getItem(STORAGE_KEY_SCENARIO);
+    const isBrowser = typeof window !== 'undefined';
+    const isDemoEnv = typeof import.meta !== 'undefined' && import.meta.env?.VITE_DEMO_MODE === 'true';
+
+    if (!isBrowser) {
+      // Trong môi trường Node unit test: mặc định mock
+      this.mode = 'mock';
+    } else if (!isDemoEnv) {
+      // Trong browser chế độ thực tế: bắt buộc live
+      this.mode = 'live';
+    } else {
+      // Trong browser khi bật VITE_DEMO_MODE=true
+      const savedMode = typeof localStorage !== 'undefined' ? (localStorage.getItem(STORAGE_KEY_MODE) as OperationMode | null) : null;
+      this.mode = savedMode === 'live' ? 'live' : 'mock';
+
+      const savedScenario = typeof localStorage !== 'undefined' ? localStorage.getItem(STORAGE_KEY_SCENARIO) : null;
       if (savedScenario && SCENARIO_DICTIONARY[savedScenario]) {
         this.currentScenario = savedScenario;
       }
@@ -108,17 +117,13 @@ class StudentService {
   }
 
   /**
-   * Lấy dữ liệu hồ sơ hiện tại
+   * Lấy dữ liệu hồ sơ hiện tại (GET /student/current)
+   * Trong chế độ Live: gọi thẳng Backend API. Nếu lỗi sẽ ném lỗi, KHÔNG âm thầm fallback mock.
    */
   public async getCurrent(): Promise<StudentCurrentResponse> {
     if (this.mode === 'live') {
-      try {
-        const api = await getApi();
-        return await api.get('/student/current');
-      } catch (err) {
-        console.warn('Backend API /student/current không khả dụng, chuyển sang chế độ Mock:', err);
-        // Tự động fallback sang mock nếu backend chưa chạy
-      }
+      const api = await getApi();
+      return await api.get('/student/current');
     }
     return this.getMockState();
   }
@@ -134,23 +139,18 @@ class StudentService {
     expectedVersion: number
   ): Promise<{ case_id: string; version: number; claim: Claim }> {
     if (this.mode === 'live') {
-      try {
-        const api = await getApi();
-        return await api.put(
-          `/student/cases/${caseId}/claims/${criterionId}`,
-          {
-            self_score: selfScore,
-            student_note: studentNote,
-            expected_version: expectedVersion,
-          }
-        );
-      } catch (err) {
-        if ((err as ErrorResponse)?.error?.code) throw err;
-        console.warn('Backend chưa sẵn sàng, lưu nháp qua Mock State');
-      }
+      const api = await getApi();
+      return await api.put(
+        `/student/cases/${caseId}/claims/${criterionId}`,
+        {
+          self_score: selfScore,
+          student_note: studentNote,
+          expected_version: expectedVersion,
+        }
+      );
     }
 
-    // Xử lý Mock State
+    // Xử lý Mock State khi ở chế độ Mock
     const state = this.getMockState();
     if (state.case.version !== expectedVersion) {
       const err: ErrorResponse = {
@@ -204,7 +204,7 @@ class StudentService {
   public async uploadEvidence(
     caseId: string,
     criterionId: string,
-    file: { name: string; type: string; size: number }
+    file: File | { name: string; type: string; size: number }
   ): Promise<EvidenceFile> {
     // Validate phía client: PDF/JPG/PNG và <= 10MB
     const validMimes = ['application/pdf', 'image/jpeg', 'image/png'];
@@ -232,16 +232,17 @@ class StudentService {
     }
 
     if (this.mode === 'live') {
-      try {
-        const api = await getApi();
-        const formData = new FormData();
-        formData.append('criterion_id', criterionId);
-        formData.append('file', file as any);
-        return await api.upload(`/student/cases/${caseId}/evidence`, formData);
-      } catch (err) {
-        if ((err as ErrorResponse)?.error?.code) throw err;
-        console.warn('Backend chưa sẵn sàng, tải tệp qua Mock State');
+      const api = await getApi();
+      const formData = new FormData();
+      formData.append('criterion_id', criterionId);
+      if (file instanceof File) {
+        formData.append('file', file);
+      } else {
+        // Dự phòng cho mock/test object
+        const blob = new Blob(['mock content'], { type: file.type });
+        formData.append('file', blob, file.name);
       }
+      return await api.upload(`/student/cases/${caseId}/evidence`, formData);
     }
 
     // Mock upload
@@ -300,17 +301,12 @@ class StudentService {
     missing_items: string[];
   }> {
     if (this.mode === 'live') {
-      try {
-        const api = await getApi();
-        return await api.post(
-          `/student/cases/${caseId}/submit`,
-          { expected_version: expectedVersion },
-          `submit-${caseId}-${Date.now()}`
-        );
-      } catch (err) {
-        if ((err as ErrorResponse)?.error?.code) throw err;
-        console.warn('Backend chưa sẵn sàng, nộp qua Mock State');
-      }
+      const api = await getApi();
+      return await api.post(
+        `/student/cases/${caseId}/submit`,
+        { expected_version: expectedVersion },
+        `submit-${caseId}-${Date.now()}`
+      );
     }
 
     const state = this.getMockState();
@@ -382,17 +378,12 @@ class StudentService {
     acceptance_source: string;
   }> {
     if (this.mode === 'live') {
-      try {
-        const api = await getApi();
-        return await api.post(
-          `/student/cases/${caseId}/accept`,
-          { expected_version: expectedVersion },
-          `accept-${caseId}-${Date.now()}`
-        );
-      } catch (err) {
-        if ((err as ErrorResponse)?.error?.code) throw err;
-        console.warn('Backend chưa sẵn sàng, chấp nhận qua Mock State');
-      }
+      const api = await getApi();
+      return await api.post(
+        `/student/cases/${caseId}/accept`,
+        { expected_version: expectedVersion },
+        `accept-${caseId}-${Date.now()}`
+      );
     }
 
     const state = this.getMockState();
@@ -433,20 +424,15 @@ class StudentService {
     appeals: Appeal[];
   }> {
     if (this.mode === 'live') {
-      try {
-        const api = await getApi();
-        return await api.post(
-          `/student/cases/${caseId}/appeals`,
-          {
-            expected_version: expectedVersion,
-            items,
-          },
-          `appeal-${caseId}-${Date.now()}`
-        );
-      } catch (err) {
-        if ((err as ErrorResponse)?.error?.code) throw err;
-        console.warn('Backend chưa sẵn sàng, gửi khiếu nại qua Mock State');
-      }
+      const api = await getApi();
+      return await api.post(
+        `/student/cases/${caseId}/appeals`,
+        {
+          expected_version: expectedVersion,
+          items,
+        },
+        `appeal-${caseId}-${Date.now()}`
+      );
     }
 
     const state = this.getMockState();
@@ -492,12 +478,8 @@ class StudentService {
    */
   public async getNotifications(): Promise<NotificationItem[]> {
     if (this.mode === 'live') {
-      try {
-        const api = await getApi();
-        return await api.get('/notifications');
-      } catch (err) {
-        console.warn('Backend chưa sẵn sàng, lấy thông báo mock');
-      }
+      const api = await getApi();
+      return await api.get('/notifications');
     }
 
     if (typeof localStorage !== 'undefined') {
@@ -518,12 +500,8 @@ class StudentService {
    */
   public async markNotificationRead(id: string): Promise<{ success: boolean }> {
     if (this.mode === 'live') {
-      try {
-        const api = await getApi();
-        return await api.post(`/notifications/${id}/read`);
-      } catch {
-        // Fallback mock
-      }
+      const api = await getApi();
+      return await api.post(`/notifications/${id}/read`);
     }
 
     const notifs = await this.getNotifications();

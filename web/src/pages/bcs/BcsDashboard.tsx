@@ -5,41 +5,68 @@ import { Deadline } from '../../components/Deadline';
 import { api } from '../../api/client';
 import { BcsCampaignOverview, Campaign } from '../../api/types';
 import { staffStore } from '../../components/staff/mockStaffData';
-import { ClipboardList, AlertCircle, CheckCircle2, Clock, Scale, ChevronRight } from 'lucide-react';
+import { ClipboardList, AlertCircle, CheckCircle2, Clock, Scale, ChevronRight, RotateCcw } from 'lucide-react';
+
+const isDemoMode = typeof import.meta !== 'undefined' && import.meta.env?.VITE_DEMO_MODE === 'true';
 
 export const BcsDashboard: React.FC = () => {
-  const [overview, setOverview] = useState<BcsCampaignOverview>(staffStore.getOverview());
-  const [campaign, setCampaign] = useState<Campaign>(staffStore.getCampaign());
-  const [loading, setLoading] = useState<boolean>(false);
+  const [overview, setOverview] = useState<BcsCampaignOverview | null>(isDemoMode ? staffStore.getOverview() : null);
+  const [campaign, setCampaign] = useState<Campaign | null>(isDemoMode ? staffStore.getCampaign() : null);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const loadData = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const camp = await api.get<Campaign>('/bcs/campaigns/active');
+      const ov = await api.get<BcsCampaignOverview>(`/bcs/campaigns/${camp.id}/overview`);
+      setCampaign(camp);
+      setOverview(ov);
+    } catch (err: unknown) {
+      if (isDemoMode) {
+        setCampaign(staffStore.getCampaign());
+        setOverview(staffStore.getOverview());
+      } else {
+        const errObj = err as { error?: { message?: string }; message?: string };
+        const msg = errObj?.error?.message || errObj?.message || 'Không thể kết nối đến máy chủ.';
+        setError(msg);
+        setCampaign(null);
+        setOverview(null);
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    let mounted = true;
-    const loadData = async () => {
-      setLoading(true);
-      try {
-        const campaignData = await api.get<Campaign>(`/admin/campaigns/${campaign.id}`);
-        if (mounted && campaignData) setCampaign(campaignData);
-      } catch {
-        // Fallback to mock store
-        if (mounted) setCampaign(staffStore.getCampaign());
-      }
-
-      try {
-        const overviewData = await api.get<BcsCampaignOverview>(`/bcs/campaigns/${campaign.id}/overview`);
-        if (mounted && overviewData) setOverview(overviewData);
-      } catch {
-        // Fallback to mock store
-        if (mounted) setOverview(staffStore.getOverview());
-      } finally {
-        if (mounted) setLoading(false);
-      }
-    };
-
     loadData();
-    return () => {
-      mounted = false;
-    };
-  }, [campaign.id]);
+  }, []);
+
+  if (loading && !campaign && !overview) {
+    return (
+      <div className="card" style={{ padding: '2.5rem', textAlign: 'center' }}>
+        <p style={{ color: '#64748b' }}>Đang tải dữ liệu đợt đánh giá...</p>
+      </div>
+    );
+  }
+
+  if (error || !campaign || !overview) {
+    return (
+      <div className="card" style={{ padding: '2rem', textAlign: 'center' }}>
+        <AlertCircle size={40} color="#dc2626" style={{ margin: '0 auto 1rem' }} />
+        <h3 style={{ fontSize: '1.15rem', fontWeight: 600, color: '#0f172a', marginBottom: '0.5rem' }}>
+          Lỗi tải dữ liệu bảng điều khiển
+        </h3>
+        <p style={{ color: '#64748b', fontSize: '0.9rem', marginBottom: '1.25rem' }}>
+          {error || 'Không tìm thấy thông tin đợt đánh giá cho lớp của bạn.'}
+        </p>
+        <button className="btn btn-primary" onClick={loadData} style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem' }}>
+          <RotateCcw size={16} /> Thử lại
+        </button>
+      </div>
+    );
+  }
 
   const totalNeedsReview = overview.bcs_review_count;
   const totalSupplement = overview.needs_info_count + overview.needs_proof_count;
@@ -66,7 +93,7 @@ export const BcsDashboard: React.FC = () => {
             <StatusBadge status={campaign.status} />
           </div>
           <p style={{ color: '#64748b', fontSize: '0.875rem', marginTop: '0.25rem' }}>
-            Đợt: <span style={{ fontWeight: 600, color: '#1e293b' }}>{campaign.title}</span> | Học kỳ: {campaign.term} | Lớp: LOP-DEMO
+            Đợt: <span style={{ fontWeight: 600, color: '#1e293b' }}>{campaign.title}</span> | Học kỳ: {campaign.term}
           </p>
         </div>
 

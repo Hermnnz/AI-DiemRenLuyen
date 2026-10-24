@@ -8,6 +8,9 @@ interface StudentScenarioBarProps {
 }
 
 export const StudentScenarioBar: React.FC<StudentScenarioBarProps> = ({ onScenarioChange }) => {
+  const isDemo = typeof import.meta !== 'undefined' && import.meta.env?.VITE_DEMO_MODE === 'true';
+  if (!isDemo) return null;
+
   const [mode, setMode] = useState<OperationMode>(studentService.getMode());
   const [scenario, setScenario] = useState<string>(studentService.getCurrentScenarioKey());
   const [isCollapsed, setIsCollapsed] = useState<boolean>(false);

@@ -82,6 +82,14 @@ export const App: React.FC = () => {
               }
             />
             <Route
+              path="/bcs/dashboard"
+              element={
+                <ProtectedRoute allowedRoles={['BCS']}>
+                  <BcsDashboard />
+                </ProtectedRoute>
+              }
+            />
+            <Route
               path="/bcs/cases"
               element={
                 <ProtectedRoute allowedRoles={['BCS']}>

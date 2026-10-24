@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Meeting, MeetingKind } from '../../api/types';
 import { Calendar, X, AlertTriangle } from 'lucide-react';
 
@@ -26,6 +26,19 @@ export const MeetingRecordModal: React.FC<MeetingRecordModalProps> = ({
   const [note, setNote] = useState<string>(existingMeeting?.note || '');
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    if (isOpen) {
+      setKind(initialKind);
+      setHeldAt(
+        existingMeeting?.held_at
+          ? new Date(existingMeeting.held_at).toISOString().slice(0, 16)
+          : new Date().toISOString().slice(0, 16)
+      );
+      setNote(existingMeeting?.note || '');
+      setError(null);
+    }
+  }, [isOpen, initialKind, existingMeeting]);
 
   if (!isOpen) return null;
 

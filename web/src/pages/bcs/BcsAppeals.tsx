@@ -10,8 +10,8 @@ import { Scale, CheckCircle2, AlertTriangle, Eye, ShieldCheck, Check, Lock } fro
 const isDemoMode = typeof import.meta !== 'undefined' && import.meta.env?.VITE_DEMO_MODE === 'true';
 
 export const BcsAppeals: React.FC = () => {
-  const [campaign, setCampaign] = useState<Campaign>(staffStore.getCampaign());
-  const [appeals, setAppeals] = useState<AppealDetailItem[]>(staffStore.getAppeals());
+  const [campaign, setCampaign] = useState<Campaign | null>(isDemoMode ? staffStore.getCampaign() : null);
+  const [appeals, setAppeals] = useState<AppealDetailItem[]>(isDemoMode ? staffStore.getAppeals() : []);
   const [loading, setLoading] = useState(false);
   const [filter, setFilter] = useState<'ALL' | 'OPEN' | 'RESOLVED'>('ALL');
 
@@ -67,7 +67,7 @@ export const BcsAppeals: React.FC = () => {
     return true;
   });
 
-  const isFinalized = campaign.status === 'FINALIZED';
+  const isFinalized = campaign ? campaign.status === 'FINALIZED' : false;
   const canFinalize = openAppeals.length === 0 && !isFinalized;
 
   const handleResolve = async (appealId: string) => {
@@ -119,7 +119,7 @@ export const BcsAppeals: React.FC = () => {
       setErrorMsg(null);
       if (isDemoMode) {
         staffStore.finalizeCampaign();
-      } else {
+      } else if (campaign) {
         await api.post(`/bcs/campaigns/${campaign.id}/finalize`);
       }
       setShowFinalizeConfirm(false);
@@ -150,7 +150,7 @@ export const BcsAppeals: React.FC = () => {
             <h2 style={{ fontSize: '1.35rem', fontWeight: 700, color: '#0f172a' }}>
               Danh sách Khiếu nại từ Sinh viên
             </h2>
-            <StatusBadge status={campaign.status} />
+            <StatusBadge status={campaign ? campaign.status : 'PUBLISHED'} />
           </div>
           <p style={{ color: '#64748b', fontSize: '0.875rem' }}>
             Xem xét minh chứng và lý do khiếu nại, quyết định Giữ nguyên hoặc Điều chỉnh điểm

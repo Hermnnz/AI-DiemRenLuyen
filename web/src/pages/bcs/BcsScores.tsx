@@ -9,10 +9,21 @@ import { Calendar, CheckCircle2, AlertCircle, AlertTriangle, Search, Send, Rotat
 
 const isDemoMode = typeof import.meta !== 'undefined' && import.meta.env?.VITE_DEMO_MODE === 'true';
 
+const emptyScoreboard: ScoreboardResponse = {
+  campaign_id: '',
+  can_publish: false,
+  meetings: [],
+  items: [],
+};
+
 export const BcsScores: React.FC = () => {
-  const [scoreboard, setScoreboard] = useState<ScoreboardResponse>(staffStore.getScoreboard());
-  const [campaign, setCampaign] = useState<Campaign>(staffStore.getCampaign());
-  const [loading, setLoading] = useState(false);
+  const [scoreboard, setScoreboard] = useState<ScoreboardResponse>(
+    isDemoMode ? staffStore.getScoreboard() : emptyScoreboard
+  );
+  const [campaign, setCampaign] = useState<Campaign | null>(
+    isDemoMode ? staffStore.getCampaign() : null
+  );
+  const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
@@ -65,7 +76,7 @@ export const BcsScores: React.FC = () => {
   ).length;
 
   const isAllCasesReady = unproposedCases === 0;
-  const isAlreadyPublishedOrFinalized = ['PUBLISHED', 'FINALIZED'].includes(campaign.status);
+  const isAlreadyPublishedOrFinalized = campaign ? ['PUBLISHED', 'FINALIZED'].includes(campaign.status) : false;
   const canPublish = scoreboard.can_publish && !isAlreadyPublishedOrFinalized;
 
   const handleOpenMeetingModal = (kind: MeetingKind) => {
@@ -74,6 +85,7 @@ export const BcsScores: React.FC = () => {
   };
 
   const handleRecordMeeting = async (kind: MeetingKind, heldAt: string, note: string | null) => {
+    if (!campaign) return;
     try {
       if (isDemoMode) {
         staffStore.recordMeeting(kind, heldAt, note);
@@ -94,6 +106,7 @@ export const BcsScores: React.FC = () => {
   };
 
   const handlePublish = async () => {
+    if (!campaign) return;
     try {
       setPublishing(true);
       setErrorMsg(null);
@@ -139,10 +152,10 @@ export const BcsScores: React.FC = () => {
             <h2 style={{ fontSize: '1.35rem', fontWeight: 700, color: '#0f172a' }}>
               Bảng điểm Dự kiến Cả lớp & Công bố
             </h2>
-            <StatusBadge status={campaign.status} />
+            <StatusBadge status={campaign ? campaign.status : 'DRAFT'} />
           </div>
           <p style={{ color: '#64748b', fontSize: '0.875rem' }}>
-            Đợt: {campaign.title} | Lớp: LOP-DEMO | Học kỳ: {campaign.term}
+            Đợt: {campaign ? campaign.title : '—'} | Lớp: LOP-DEMO | Học kỳ: {campaign ? campaign.term : '—'}
           </p>
         </div>
 
@@ -154,6 +167,7 @@ export const BcsScores: React.FC = () => {
           ) : (
             <button
               type="button"
+              data-testid="publish-scores-btn"
               disabled={!canPublish || publishing}
               onClick={() => setShowPublishConfirm(true)}
               className="btn btn-primary"
@@ -297,6 +311,7 @@ export const BcsScores: React.FC = () => {
 
             <button
               type="button"
+              data-testid="record-bcs-meeting"
               onClick={() => handleOpenMeetingModal('BCS')}
               className="btn btn-secondary"
               style={{ padding: '0.3rem 0.6rem', fontSize: '0.775rem', alignSelf: 'flex-start', marginTop: '0.5rem' }}
@@ -354,6 +369,7 @@ export const BcsScores: React.FC = () => {
 
             <button
               type="button"
+              data-testid="record-class-meeting"
               onClick={() => handleOpenMeetingModal('CLASS')}
               className="btn btn-secondary"
               style={{ padding: '0.3rem 0.6rem', fontSize: '0.775rem', alignSelf: 'flex-start', marginTop: '0.5rem' }}
@@ -468,7 +484,7 @@ export const BcsScores: React.FC = () => {
       <ConfirmDialog
         isOpen={showPublishConfirm}
         title="Xác nhận công bố điểm rèn luyện dự kiến"
-        message={`Điểm rèn luyện dự kiến của toàn bộ ${totalCases} sinh viên trong lớp sẽ được công bố công khai. Sinh viên sẽ có ${campaign.appeal_period_hours} giờ để bấm xác nhận hoặc gửi khiếu nại. Bạn có chắc chắn muốn công bố?`}
+        message={`Điểm rèn luyện dự kiến của toàn bộ ${totalCases} sinh viên trong lớp sẽ được công bố công khai. Sinh viên sẽ có ${campaign?.appeal_period_hours || 48} giờ để bấm xác nhận hoặc gửi khiếu nại. Bạn có chắc chắn muốn công bố?`}
         confirmLabel="Công bố ngay"
         onConfirm={handlePublish}
         onCancel={() => setShowPublishConfirm(false)}

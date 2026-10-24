@@ -158,16 +158,17 @@ export const GvcnFinalScores: React.FC = () => {
             <h2 style={{ fontSize: '1.35rem', fontWeight: 700, color: '#0f172a' }}>
               Bảng điểm Rèn luyện Chính thức (GVCN)
             </h2>
-            <StatusBadge status={campaign.status} />
+            <StatusBadge status={campaign ? campaign.status : 'FINALIZED'} />
           </div>
           <p style={{ color: '#64748b', fontSize: '0.875rem' }}>
-            Học kỳ: <strong>{campaign.term}</strong> | Đợt: <strong>{campaign.title}</strong> | Phân quyền: <strong>Chỉ đọc bảng điểm sau khi chốt</strong>
+            Học kỳ: <strong>{campaign ? campaign.term : '—'}</strong> | Đợt: <strong>{campaign ? campaign.title : '—'}</strong> | Phân quyền: <strong>Chỉ đọc bảng điểm sau khi chốt</strong>
           </p>
         </div>
 
         <div>
           <button
             type="button"
+            data-testid="export-csv-btn"
             disabled={!isFinalized || downloading}
             onClick={handleExportCsv}
             className="btn btn-primary"
@@ -213,7 +214,7 @@ export const GvcnFinalScores: React.FC = () => {
               Đợt đánh giá chưa hoàn thành chốt điểm
             </h3>
             <p style={{ color: '#64748b', fontSize: '0.9rem', marginTop: '0.5rem', lineHeight: 1.6 }}>
-              Hiện tại đợt đang ở trạng thái <strong style={{ color: '#1e40af' }}>{campaign.status}</strong>. Theo quy chế quản lý điểm rèn luyện, Giáo viên chủ nhiệm chỉ có quyền truy cập bảng điểm chính thức và xuất tệp CSV sau khi Ban cán sự lớp đã hoàn tất bình xét, giải quyết xong khiếu nại và thực hiện chốt điểm toàn lớp.
+              Hiện tại đợt đang ở trạng thái <strong style={{ color: '#1e40af' }}>{campaign ? campaign.status : '—'}</strong>. Theo quy chế quản lý điểm rèn luyện, Giáo viên chủ nhiệm chỉ có quyền truy cập bảng điểm chính thức và xuất tệp CSV sau khi Ban cán sự lớp đã hoàn tất bình xét, giải quyết xong khiếu nại và thực hiện chốt điểm toàn lớp.
             </p>
           </div>
 

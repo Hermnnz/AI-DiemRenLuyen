@@ -178,3 +178,26 @@ npm run build --prefix web
 python api/scripts/verify_live_flow.py
 ```
 Script này tự động kiểm tra toàn bộ chu trình 10 bước qua API và cơ sở dữ liệu thực: Đăng nhập sai pass bị 401 -> Đăng nhập đúng giữ cookie/CSRF -> sv001 vào /bcs bị 403 -> sv001 tự chấm/upload/nộp -> BCS duyệt điểm -> BCS ghi họp/công bố -> sv001 khiếu nại -> BCS giải quyết/chốt -> GVCN tải CSV -> Đăng xuất chặn route.
+
+### 6. Kiểm thử Toàn diện qua Trình duyệt Thực (Giai đoạn 3 Playwright Browser Suite):
+```bash
+# Cài đặt Playwright (nếu chưa có)
+pip install playwright
+
+# Đảm bảo Backend (port 8000) và Frontend (port 5173) đang chạy, sau đó chạy:
+python api/scripts/browser_phase3_run.py
+```
+Kịch bản tự động điều khiển Google Chrome thực hiện chu trình kiểm thử đầu-cuối:
+- **Xác thực và Phân quyền UI:** Kiểm tra bắt lỗi 401 khi nhập sai mật khẩu; kiểm tra Route Guard chặn sinh viên vào `/bcs` hoặc `/admin/campaigns` (thẻ đỏ 403 Forbidden).
+- **Rà soát Giao diện Responsive:** Đo lường tự động trên 3 độ phân giải thực tế (Mobile 390px, Tablet 768px, Desktop BCS 1366px), cam kết không phát sinh hiện tượng tràn ngang màn hình (`scrollWidth <= innerWidth`).
+- **Chu trình Đầy đủ 4 Vai trò (Database Thực):**
+  1. `ADMIN` (`admin001`): Đăng nhập, mở đợt đánh giá trực tiếp qua UI.
+  2. `STUDENT` (`sv001`): Form tự chấm, bắt lỗi tải file sai định dạng `.txt`, tải file thực PDF và PNG, lưu nháp, nộp hồ sơ vào hàng chờ `BCS_REVIEW`.
+  3. `STUDENT` (`sv002` & `sv003`): Kiểm chứng cách ly dữ liệu tuyệt đối (sv002 chỉ thấy hồ sơ của mình, không thấy sv001), nộp hồ sơ.
+  4. `BCS` (`bcs001`): Xem hàng chờ cả lớp; mở modal xem tệp an toàn; chấm duyệt 3 vùng; cổng công bố điểm khóa khi chưa đủ 2 cuộc họp; ghi nhận biên bản Họp BCS và Họp Toàn thể Lớp; mở khóa và công bố điểm (`PUBLISHED`).
+  5. `STUDENT` (`sv001`): Xem điểm dự kiến và lý do BCS; gửi đơn khiếu nại (`APPEALED`); kiểm chứng loại trừ tương hỗ (vô hiệu hóa nút Đồng ý).
+  6. `STUDENT` (`sv002` & `sv003`): Xác nhận đồng ý với điểm dự kiến (`ACCEPTED`).
+  7. `BCS` (`bcs001`): Giải quyết khiếu nại của sv001 (`RESOLVED`); chốt điểm chính thức toàn bộ lớp (`FINALIZED`).
+  8. `GVCN` (`gvcn001`): Xem bảng điểm chính thức toàn bộ sinh viên, tải tệp CSV và xác minh nội dung dữ liệu UTF-8 BOM.
+- **Giám sát Console Browser:** Ghi nhận 0 lỗi JavaScript/runtime crash (`0 console errors`).
+

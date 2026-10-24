@@ -1,0 +1,2089 @@
+openapi: 3.0.3
+info:
+  title: Web Chấm Điểm Rèn Luyện API
+  description: Hợp đồng giao tiếp API cho hệ thống chấm điểm rèn luyện (Phiên bản vỏ V1)
+  version: 1.0.0
+servers:
+  - url: /api/v1
+    description: Base API URL v1
+
+paths:
+  /health:
+    get:
+      summary: Health check hệ thống
+      operationId: getHealth
+      responses:
+        '200':
+          description: Hệ thống hoạt động bình thường
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - status
+                  - timestamp
+                properties:
+                  status:
+                    type: string
+                    example: "ok"
+                  timestamp:
+                    type: string
+                    format: date-time
+                    example: "2026-10-24T12:00:00Z"
+
+  /auth/login:
+    post:
+      summary: Đăng nhập hệ thống
+      operationId: login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - username
+                - password
+              properties:
+                username:
+                  type: string
+                  example: "sv001"
+                password:
+                  type: string
+                  example: "Demo@123456"
+      responses:
+        '200':
+          description: Đăng nhập thành công, trả thông tin người dùng và CSRF token
+          headers:
+            Set-Cookie:
+              schema:
+                type: string
+                description: HttpOnly session cookie
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '401':
+          $ref: '#/components/responses/Error401'
+        '422':
+          $ref: '#/components/responses/Error422'
+
+  /auth/me:
+    get:
+      summary: Lấy thông tin tài khoản hiện tại và CSRF token
+      operationId: getMe
+      responses:
+        '200':
+          description: Trả thông tin người dùng hiện tại
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '401':
+          $ref: '#/components/responses/Error401'
+
+  /auth/logout:
+    post:
+      summary: Đăng xuất khỏi hệ thống
+      operationId: logout
+      responses:
+        '200':
+          description: Đăng xuất thành công, xóa phiên làm việc
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: "Đăng xuất thành công"
+
+  /student/current:
+    get:
+      summary: Lấy thông tin đợt, hồ sơ và tiêu chí hiện tại của sinh viên
+      description: Trước PUBLISHED, backend không trả approved_score, proposed_total hoặc bcs_reason.
+      operationId: getStudentCurrent
+      responses:
+        '200':
+          description: Thông tin hồ sơ sinh viên
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StudentCurrentResponse'
+        '401':
+          $ref: '#/components/responses/Error401'
+        '403':
+          $ref: '#/components/responses/Error403'
+
+  /student/cases/{caseId}/claims/{criterionId}:
+    put:
+      summary: Cập nhật tự chấm hoặc ghi chú cho tiêu chí
+      operationId: updateStudentClaim
+      parameters:
+        - name: caseId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: criterionId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - expected_version
+              properties:
+                self_score:
+                  type: string
+                  pattern: '^[0-9]+(\.[0-9]{2})?$'
+                  nullable: true
+                  example: "8.00"
+                student_note:
+                  type: string
+                  nullable: true
+                  example: "Tham gia đầy đủ các buổi sinh hoạt lớp"
+                expected_version:
+                  type: integer
+                  example: 1
+      responses:
+        '200':
+          description: Cập nhật thành công, trả version mới
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - case_id
+                  - version
+                  - claim
+                properties:
+                  case_id:
+                    type: string
+                    format: uuid
+                  version:
+                    type: integer
+                    example: 2
+                  claim:
+                    $ref: '#/components/schemas/Claim'
+        '400':
+          $ref: '#/components/responses/Error400'
+        '401':
+          $ref: '#/components/responses/Error401'
+        '403':
+          $ref: '#/components/responses/Error403'
+        '409':
+          $ref: '#/components/responses/Error409'
+        '422':
+          $ref: '#/components/responses/Error422'
+
+  /student/cases/{caseId}/evidence:
+    post:
+      summary: Tải lên tệp minh chứng cho tiêu chí
+      operationId: uploadEvidence
+      parameters:
+        - name: caseId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - criterion_id
+                - file
+              properties:
+                criterion_id:
+                  type: string
+                  format: uuid
+                file:
+                  type: string
+                  format: binary
+      responses:
+        '201':
+          description: Tải tệp thành công, trả metadata
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EvidenceFile'
+        '400':
+          $ref: '#/components/responses/Error400'
+        '401':
+          $ref: '#/components/responses/Error401'
+        '403':
+          $ref: '#/components/responses/Error403'
+        '422':
+          $ref: '#/components/responses/Error422'
+
+  /files/{fileId}:
+    get:
+      summary: Tải hoặc xem tệp minh chứng an toàn
+      operationId: getFile
+      parameters:
+        - name: fileId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: File stream nhị phân (PDF/JPG/PNG)
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+            image/jpeg:
+              schema:
+                type: string
+                format: binary
+            image/png:
+              schema:
+                type: string
+                format: binary
+        '401':
+          $ref: '#/components/responses/Error401'
+        '403':
+          $ref: '#/components/responses/Error403'
+        '404':
+          $ref: '#/components/responses/Error404'
+
+  /student/cases/{caseId}/submit:
+    post:
+      summary: Sinh viên nộp hồ sơ hoặc nộp bổ sung
+      operationId: submitCase
+      parameters:
+        - name: caseId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: Idempotency-Key
+          in: header
+          required: false
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - expected_version
+              properties:
+                expected_version:
+                  type: integer
+                  example: 1
+      responses:
+        '200':
+          description: Kết quả nộp hồ sơ
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - case_id
+                  - status
+                  - version
+                  - missing_items
+                properties:
+                  case_id:
+                    type: string
+                    format: uuid
+                  status:
+                    $ref: '#/components/schemas/CaseStatus'
+                  version:
+                    type: integer
+                    example: 2
+                  missing_items:
+                    type: array
+                    items:
+                      type: string
+                    example: []
+        '401':
+          $ref: '#/components/responses/Error401'
+        '403':
+          $ref: '#/components/responses/Error403'
+        '409':
+          $ref: '#/components/responses/Error409'
+        '422':
+          $ref: '#/components/responses/Error422'
+
+  /student/cases/{caseId}/accept:
+    post:
+      summary: Sinh viên chấp nhận điểm dự kiến đã công bố
+      operationId: acceptCase
+      parameters:
+        - name: caseId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: Idempotency-Key
+          in: header
+          required: false
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - expected_version
+              properties:
+                expected_version:
+                  type: integer
+                  example: 3
+      responses:
+        '200':
+          description: Đã xác nhận đồng ý
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - case_id
+                  - status
+                  - version
+                  - acceptance_source
+                properties:
+                  case_id:
+                    type: string
+                    format: uuid
+                  status:
+                    $ref: '#/components/schemas/CaseStatus'
+                    example: "ACCEPTED"
+                  version:
+                    type: integer
+                    example: 4
+                  acceptance_source:
+                    type: string
+                    example: "EXPLICIT"
+        '401':
+          $ref: '#/components/responses/Error401'
+        '403':
+          $ref: '#/components/responses/Error403'
+        '409':
+          $ref: '#/components/responses/Error409'
+
+  /student/cases/{caseId}/appeals:
+    post:
+      summary: Sinh viên gửi khiếu nại điểm các tiêu chí
+      operationId: createStudentAppeals
+      parameters:
+        - name: caseId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: Idempotency-Key
+          in: header
+          required: false
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - expected_version
+                - items
+              properties:
+                expected_version:
+                  type: integer
+                  example: 3
+                items:
+                  type: array
+                  minItems: 1
+                  items:
+                    type: object
+                    required:
+                      - criterion_id
+                      - reason
+                    properties:
+                      criterion_id:
+                        type: string
+                        format: uuid
+                      reason:
+                        type: string
+                        example: "Em có tham gia trực nhật lớp ngày 10/10, xin gửi minh chứng bổ sung."
+      responses:
+        '200':
+          description: Gửi khiếu nại thành công
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - case_id
+                  - status
+                  - version
+                  - appeals
+                properties:
+                  case_id:
+                    type: string
+                    format: uuid
+                  status:
+                    $ref: '#/components/schemas/CaseStatus'
+                    example: "APPEALED"
+                  version:
+                    type: integer
+                    example: 4
+                  appeals:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Appeal'
+        '401':
+          $ref: '#/components/responses/Error401'
+        '403':
+          $ref: '#/components/responses/Error403'
+        '409':
+          $ref: '#/components/responses/Error409'
+        '422':
+          $ref: '#/components/responses/Error422'
+
+  /bcs/campaigns/{id}/overview:
+    get:
+      summary: Lấy tổng quan thống kê đợt đánh giá cho BCS
+      operationId: getBcsCampaignOverview
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Thống kê tổng quan đợt
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BcsCampaignOverview'
+        '401':
+          $ref: '#/components/responses/Error401'
+        '403':
+          $ref: '#/components/responses/Error403'
+        '404':
+          $ref: '#/components/responses/Error404'
+
+  /bcs/campaigns/{id}/cases:
+    get:
+      summary: Lấy danh sách hồ sơ sinh viên có lọc và phân trang
+      operationId: getBcsCampaignCases
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: q
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: page
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 1
+        - name: page_size
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 20
+      responses:
+        '200':
+          description: Danh sách hồ sơ
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - total
+                  - page
+                  - page_size
+                  - items
+                properties:
+                  total:
+                    type: integer
+                    example: 45
+                  page:
+                    type: integer
+                    example: 1
+                  page_size:
+                    type: integer
+                    example: 20
+                  items:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/BcsCaseListItem'
+        '401':
+          $ref: '#/components/responses/Error401'
+        '403':
+          $ref: '#/components/responses/Error403'
+
+  /bcs/cases/{caseId}:
+    get:
+      summary: Lấy chi tiết hồ sơ 3 vùng cho BCS kiểm tra
+      operationId: getBcsCaseDetail
+      parameters:
+        - name: caseId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Chi tiết hồ sơ đầy đủ
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BcsCaseDetail'
+        '401':
+          $ref: '#/components/responses/Error401'
+        '403':
+          $ref: '#/components/responses/Error403'
+        '404':
+          $ref: '#/components/responses/Error404'
+
+  /bcs/cases/{caseId}/supplement-requests:
+    post:
+      summary: BCS yêu cầu bổ sung thông tin hoặc minh chứng
+      operationId: createSupplementRequest
+      parameters:
+        - name: caseId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - kind
+                - reason
+                - expected_version
+              properties:
+                kind:
+                  $ref: '#/components/schemas/SupplementKind'
+                criterion_id:
+                  type: string
+                  format: uuid
+                  nullable: true
+                reason:
+                  type: string
+                  example: "Minh chứng bị mờ, vui lòng chụp lại rõ nét hơn"
+                expected_version:
+                  type: integer
+                  example: 2
+      responses:
+        '201':
+          description: Tạo yêu cầu thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SupplementRequest'
+        '401':
+          $ref: '#/components/responses/Error401'
+        '403':
+          $ref: '#/components/responses/Error403'
+        '409':
+          $ref: '#/components/responses/Error409'
+        '422':
+          $ref: '#/components/responses/Error422'
+
+  /bcs/cases/{caseId}/claims/{criterionId}/review:
+    put:
+      summary: BCS duyệt điểm cho một tiêu chí
+      description: Nếu approved_score khác self_score thì bắt buộc nhập reason.
+      operationId: reviewBcsClaim
+      parameters:
+        - name: caseId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: criterionId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - approved_score
+                - expected_version
+              properties:
+                approved_score:
+                  type: string
+                  pattern: '^[0-9]+(\.[0-9]{2})?$'
+                  example: "7.00"
+                reason:
+                  type: string
+                  nullable: true
+                  example: "BCS xác nhận theo minh chứng đã nộp"
+                expected_version:
+                  type: integer
+                  example: 4
+      responses:
+        '200':
+          description: Duyệt tiêu chí thành công
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - case_id
+                  - version
+                  - claim
+                properties:
+                  case_id:
+                    type: string
+                    format: uuid
+                  version:
+                    type: integer
+                    example: 5
+                  claim:
+                    $ref: '#/components/schemas/Claim'
+        '401':
+          $ref: '#/components/responses/Error401'
+        '403':
+          $ref: '#/components/responses/Error403'
+        '409':
+          $ref: '#/components/responses/Error409'
+        '422':
+          $ref: '#/components/responses/Error422'
+
+  /bcs/cases/{caseId}/complete-review:
+    post:
+      summary: BCS hoàn tất kiểm tra hồ sơ, chuyển sang PROPOSED
+      operationId: completeBcsReview
+      parameters:
+        - name: caseId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - expected_version
+              properties:
+                expected_version:
+                  type: integer
+                  example: 5
+      responses:
+        '200':
+          description: Hoàn tất kiểm tra, hồ sơ đã sang PROPOSED
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - case_id
+                  - status
+                  - proposed_total
+                  - version
+                properties:
+                  case_id:
+                    type: string
+                    format: uuid
+                  status:
+                    $ref: '#/components/schemas/CaseStatus'
+                    example: "PROPOSED"
+                  proposed_total:
+                    type: string
+                    example: "85.00"
+                  version:
+                    type: integer
+                    example: 6
+        '401':
+          $ref: '#/components/responses/Error401'
+        '403':
+          $ref: '#/components/responses/Error403'
+        '409':
+          $ref: '#/components/responses/Error409'
+        '422':
+          $ref: '#/components/responses/Error422'
+
+  /bcs/campaigns/{id}/meetings:
+    post:
+      summary: Ghi nhận hoặc cập nhật biên bản họp BCS hoặc họp Lớp
+      operationId: recordMeeting
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - kind
+                - held_at
+              properties:
+                kind:
+                  $ref: '#/components/schemas/MeetingKind'
+                held_at:
+                  type: string
+                  format: date-time
+                  example: "2026-10-25T14:00:00Z"
+                note:
+                  type: string
+                  nullable: true
+                  example: "Họp bình xét điểm rèn luyện lớp có GVCN tham dự"
+      responses:
+        '200':
+          description: Ghi nhận thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Meeting'
+        '401':
+          $ref: '#/components/responses/Error401'
+        '403':
+          $ref: '#/components/responses/Error403'
+        '422':
+          $ref: '#/components/responses/Error422'
+
+  /bcs/campaigns/{id}/publish:
+    post:
+      summary: Công bố điểm rèn luyện dự kiến cả lớp
+      operationId: publishCampaignScores
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: Idempotency-Key
+          in: header
+          required: false
+          schema:
+            type: string
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                expected_campaign_status:
+                  $ref: '#/components/schemas/CampaignStatus'
+                  example: "REVIEW"
+      responses:
+        '200':
+          description: Công bố điểm thành công
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - campaign_id
+                  - status
+                  - published_at
+                  - appeal_deadline_at
+                properties:
+                  campaign_id:
+                    type: string
+                    format: uuid
+                  status:
+                    $ref: '#/components/schemas/CampaignStatus'
+                    example: "PUBLISHED"
+                  published_at:
+                    type: string
+                    format: date-time
+                  appeal_deadline_at:
+                    type: string
+                    format: date-time
+        '401':
+          $ref: '#/components/responses/Error401'
+        '403':
+          $ref: '#/components/responses/Error403'
+        '409':
+          $ref: '#/components/responses/Error409'
+
+  /bcs/campaigns/{id}/scoreboard:
+    get:
+      summary: Bảng điểm dự kiến toàn lớp cho BCS
+      operationId: getBcsScoreboard
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Dữ liệu bảng điểm
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScoreboardResponse'
+        '401':
+          $ref: '#/components/responses/Error401'
+        '403':
+          $ref: '#/components/responses/Error403'
+
+  /bcs/campaigns/{id}/appeals:
+    get:
+      summary: Danh sách tất cả khiếu nại trong đợt
+      operationId: getBcsAppeals
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Danh sách khiếu nại
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AppealDetailItem'
+        '401':
+          $ref: '#/components/responses/Error401'
+        '403':
+          $ref: '#/components/responses/Error403'
+
+  /bcs/appeals/{appealId}/resolve:
+    post:
+      summary: BCS xử lý khiếu nại (Giữ nguyên hoặc Điều chỉnh điểm)
+      operationId: resolveAppeal
+      parameters:
+        - name: appealId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: Idempotency-Key
+          in: header
+          required: false
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - resolution
+                - reason
+              properties:
+                resolution:
+                  $ref: '#/components/schemas/AppealResolution'
+                new_score:
+                  type: string
+                  pattern: '^[0-9]+(\.[0-9]{2})?$'
+                  nullable: true
+                  example: "8.00"
+                reason:
+                  type: string
+                  example: "BCS chấp nhận minh chứng bổ sung"
+      responses:
+        '200':
+          description: Xử lý thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Appeal'
+        '401':
+          $ref: '#/components/responses/Error401'
+        '403':
+          $ref: '#/components/responses/Error403'
+        '409':
+          $ref: '#/components/responses/Error409'
+        '422':
+          $ref: '#/components/responses/Error422'
+
+  /bcs/campaigns/{id}/finalize:
+    post:
+      summary: BCS chốt bảng điểm cuối cùng của cả lớp
+      operationId: finalizeCampaign
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - name: Idempotency-Key
+          in: header
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Chốt điểm thành công
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - campaign_id
+                  - status
+                  - finalized_at
+                properties:
+                  campaign_id:
+                    type: string
+                    format: uuid
+                  status:
+                    $ref: '#/components/schemas/CampaignStatus'
+                    example: "FINALIZED"
+                  finalized_at:
+                    type: string
+                    format: date-time
+        '401':
+          $ref: '#/components/responses/Error401'
+        '403':
+          $ref: '#/components/responses/Error403'
+        '409':
+          $ref: '#/components/responses/Error409'
+
+  /gvcn/campaigns/{id}/final-scores.csv:
+    get:
+      summary: GVCN tải bảng điểm chốt dạng CSV
+      operationId: exportFinalScoresCsv
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: File CSV bảng điểm chính thức
+          content:
+            text/csv:
+              schema:
+                type: string
+        '401':
+          $ref: '#/components/responses/Error401'
+        '403':
+          $ref: '#/components/responses/Error403'
+        '404':
+          $ref: '#/components/responses/Error404'
+        '409':
+          $ref: '#/components/responses/Error409'
+
+  /notifications:
+    get:
+      summary: Lấy danh sách thông báo của tài khoản hiện tại
+      operationId: getNotifications
+      responses:
+        '200':
+          description: Danh sách thông báo
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/NotificationItem'
+        '401':
+          $ref: '#/components/responses/Error401'
+
+  /notifications/{id}/read:
+    post:
+      summary: Đánh dấu thông báo đã đọc
+      operationId: markNotificationRead
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Đã đánh dấu đọc
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - id
+                  - read_at
+                properties:
+                  id:
+                    type: string
+                    format: uuid
+                  read_at:
+                    type: string
+                    format: date-time
+
+  /admin/campaigns:
+    post:
+      summary: ADMIN tạo đợt đánh giá mới kèm danh sách tiêu chí
+      operationId: createCampaign
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateCampaignRequest'
+      responses:
+        '201':
+          description: Tạo đợt thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Campaign'
+        '401':
+          $ref: '#/components/responses/Error401'
+        '403':
+          $ref: '#/components/responses/Error403'
+        '422':
+          $ref: '#/components/responses/Error422'
+
+  /admin/campaigns/{id}:
+    put:
+      summary: ADMIN cập nhật đợt đánh giá khi ở trạng thái DRAFT
+      operationId: updateCampaign
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateCampaignRequest'
+      responses:
+        '200':
+          description: Cập nhật thành công
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Campaign'
+        '401':
+          $ref: '#/components/responses/Error401'
+        '403':
+          $ref: '#/components/responses/Error403'
+        '409':
+          $ref: '#/components/responses/Error409'
+        '422':
+          $ref: '#/components/responses/Error422'
+
+  /admin/campaigns/{id}/open:
+    post:
+      summary: ADMIN lên lịch hoặc mở đợt
+      operationId: openCampaign
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Đợt đã được mở hoặc chuyển sang SCHEDULED
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - id
+                  - status
+                properties:
+                  id:
+                    type: string
+                    format: uuid
+                  status:
+                    $ref: '#/components/schemas/CampaignStatus'
+        '401':
+          $ref: '#/components/responses/Error401'
+        '403':
+          $ref: '#/components/responses/Error403'
+        '409':
+          $ref: '#/components/responses/Error409'
+
+components:
+  schemas:
+    Role:
+      type: string
+      enum: [STUDENT, BCS, GVCN, ADMIN]
+
+    CampaignStatus:
+      type: string
+      enum: [DRAFT, SCHEDULED, OPEN, REVIEW, PUBLISHED, FINALIZED]
+
+    CaseStatus:
+      type: string
+      enum:
+        - DRAFT
+        - SUBMITTED
+        - NEEDS_INFO
+        - BCS_REVIEW
+        - NEEDS_PROOF
+        - PROPOSED
+        - PUBLISHED
+        - ACCEPTED
+        - APPEALED
+        - ACCEPTED_AUTO
+        - RESOLVED
+        - FINALIZED
+        - CLOSED_INCOMPLETE
+        - CLOSED_NO_SUBMIT
+
+    SupplementKind:
+      type: string
+      enum: [INFO, PROOF]
+
+    MeetingKind:
+      type: string
+      enum: [BCS, CLASS]
+
+    AppealStatus:
+      type: string
+      enum: [OPEN, RESOLVED]
+
+    AppealResolution:
+      type: string
+      enum: [KEEP, ADJUST]
+
+    User:
+      type: object
+      required:
+        - id
+        - username
+        - full_name
+        - role
+        - class_ids
+      properties:
+        id:
+          type: string
+          format: uuid
+        username:
+          type: string
+          example: "sv001"
+        full_name:
+          type: string
+          example: "Nguyễn Văn A"
+        role:
+          $ref: '#/components/schemas/Role'
+        class_ids:
+          type: array
+          items:
+            type: string
+            format: uuid
+
+    AuthResponse:
+      type: object
+      required:
+        - user
+        - csrf_token
+      properties:
+        user:
+          $ref: '#/components/schemas/User'
+        csrf_token:
+          type: string
+          example: "csrf-sample-token-abc"
+
+    Criterion:
+      type: object
+      required:
+        - id
+        - campaign_id
+        - code
+        - title
+        - description
+        - max_score
+        - requires_evidence
+        - sort_order
+      properties:
+        id:
+          type: string
+          format: uuid
+        campaign_id:
+          type: string
+          format: uuid
+        code:
+          type: string
+          example: "TC01"
+        title:
+          type: string
+          example: "Ý thức tham gia học tập"
+        description:
+          type: string
+          example: "Dữ liệu minh họa — không dùng để ra quyết định thật"
+        max_score:
+          type: string
+          example: "10.00"
+        requires_evidence:
+          type: boolean
+          example: true
+        sort_order:
+          type: integer
+          example: 1
+
+    EvidenceFile:
+      type: object
+      required:
+        - id
+        - original_name
+        - mime_type
+        - size_bytes
+        - uploaded_at
+        - is_current
+      properties:
+        id:
+          type: string
+          format: uuid
+        original_name:
+          type: string
+          example: "bang-diem.pdf"
+        mime_type:
+          type: string
+          example: "application/pdf"
+        size_bytes:
+          type: integer
+          example: 1048576
+        uploaded_at:
+          type: string
+          format: date-time
+        is_current:
+          type: boolean
+          example: true
+
+    Claim:
+      type: object
+      required:
+        - id
+        - criterion_id
+        - self_score
+        - student_note
+        - approved_score
+        - bcs_reason
+        - evidence
+      properties:
+        id:
+          type: string
+          format: uuid
+        criterion_id:
+          type: string
+          format: uuid
+        self_score:
+          type: string
+          nullable: true
+          example: "8.00"
+        student_note:
+          type: string
+          nullable: true
+          example: "Có chứng chỉ hoàn thành khóa học"
+        approved_score:
+          type: string
+          nullable: true
+          example: "8.00"
+        bcs_reason:
+          type: string
+          nullable: true
+          example: "Hợp lệ theo minh chứng"
+        evidence:
+          type: array
+          items:
+            $ref: '#/components/schemas/EvidenceFile'
+
+    SupplementRequest:
+      type: object
+      required:
+        - id
+        - case_id
+        - kind
+        - round_no
+        - reason
+        - deadline_at
+        - fulfilled_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        case_id:
+          type: string
+          format: uuid
+        kind:
+          $ref: '#/components/schemas/SupplementKind'
+        criterion_id:
+          type: string
+          format: uuid
+          nullable: true
+        round_no:
+          type: integer
+          example: 1
+        reason:
+          type: string
+          example: "Ảnh minh chứng bị nhòe"
+        requested_by:
+          type: string
+          format: uuid
+          nullable: true
+        deadline_at:
+          type: string
+          format: date-time
+        fulfilled_at:
+          type: string
+          format: date-time
+          nullable: true
+
+    Appeal:
+      type: object
+      required:
+        - id
+        - case_id
+        - criterion_id
+        - student_reason
+        - status
+        - resolution
+        - new_score
+        - bcs_reason
+      properties:
+        id:
+          type: string
+          format: uuid
+        case_id:
+          type: string
+          format: uuid
+        criterion_id:
+          type: string
+          format: uuid
+        student_reason:
+          type: string
+          example: "Đề nghị xem xét lại minh chứng tham gia hiến máu"
+        status:
+          $ref: '#/components/schemas/AppealStatus'
+        resolution:
+          $ref: '#/components/schemas/AppealResolution'
+          nullable: true
+        new_score:
+          type: string
+          nullable: true
+          example: "9.00"
+        bcs_reason:
+          type: string
+          nullable: true
+        submitted_at:
+          type: string
+          format: date-time
+        resolved_at:
+          type: string
+          format: date-time
+          nullable: true
+
+    Meeting:
+      type: object
+      required:
+        - id
+        - campaign_id
+        - kind
+        - held_at
+        - note
+      properties:
+        id:
+          type: string
+          format: uuid
+        campaign_id:
+          type: string
+          format: uuid
+        kind:
+          $ref: '#/components/schemas/MeetingKind'
+        held_at:
+          type: string
+          format: date-time
+        note:
+          type: string
+          nullable: true
+
+    Campaign:
+      type: object
+      required:
+        - id
+        - class_id
+        - title
+        - term
+        - status
+        - open_at
+        - submission_deadline_at
+        - supplement_period_hours
+        - appeal_period_hours
+        - reminder_after_hours
+        - max_info_rounds
+        - max_proof_rounds
+      properties:
+        id:
+          type: string
+          format: uuid
+        class_id:
+          type: string
+          format: uuid
+        title:
+          type: string
+          example: "Đợt demo học kỳ 1"
+        term:
+          type: string
+          example: "HK1-DEMO"
+        status:
+          $ref: '#/components/schemas/CampaignStatus'
+        open_at:
+          type: string
+          format: date-time
+        submission_deadline_at:
+          type: string
+          format: date-time
+        supplement_period_hours:
+          type: integer
+          example: 48
+        appeal_period_hours:
+          type: integer
+          example: 72
+        reminder_after_hours:
+          type: integer
+          example: 48
+        max_info_rounds:
+          type: integer
+          example: 2
+        max_proof_rounds:
+          type: integer
+          example: 2
+        criteria:
+          type: array
+          items:
+            $ref: '#/components/schemas/Criterion'
+
+    CreateCampaignRequest:
+      type: object
+      required:
+        - class_id
+        - title
+        - term
+        - open_at
+        - submission_deadline_at
+        - supplement_period_hours
+        - appeal_period_hours
+        - reminder_after_hours
+        - max_info_rounds
+        - max_proof_rounds
+        - criteria
+      properties:
+        class_id:
+          type: string
+          format: uuid
+        title:
+          type: string
+          example: "Đợt demo học kỳ 1"
+        term:
+          type: string
+          example: "HK1-DEMO"
+        open_at:
+          type: string
+          format: date-time
+        submission_deadline_at:
+          type: string
+          format: date-time
+        supplement_period_hours:
+          type: integer
+          example: 48
+        appeal_period_hours:
+          type: integer
+          example: 72
+        reminder_after_hours:
+          type: integer
+          example: 48
+        max_info_rounds:
+          type: integer
+          example: 2
+        max_proof_rounds:
+          type: integer
+          example: 2
+        criteria:
+          type: array
+          items:
+            type: object
+            required:
+              - code
+              - title
+              - description
+              - max_score
+              - requires_evidence
+              - sort_order
+            properties:
+              code:
+                type: string
+                example: "TC01"
+              title:
+                type: string
+                example: "Tiêu chí minh họa 1"
+              description:
+                type: string
+                example: "Chỉ dùng cho demo"
+              max_score:
+                type: string
+                example: "10.00"
+              requires_evidence:
+                type: boolean
+                example: true
+              sort_order:
+                type: integer
+                example: 1
+
+    StudentCurrentResponse:
+      type: object
+      required:
+        - campaign
+        - case
+        - criteria
+        - claims
+        - unread_notifications_count
+      properties:
+        campaign:
+          $ref: '#/components/schemas/Campaign'
+        case:
+          type: object
+          required:
+            - id
+            - version
+            - status
+            - info_round
+            - proof_round
+          properties:
+            id:
+              type: string
+              format: uuid
+            version:
+              type: integer
+              example: 1
+            status:
+              $ref: '#/components/schemas/CaseStatus'
+            claimed_total:
+              type: string
+              nullable: true
+              example: "80.00"
+            proposed_total:
+              type: string
+              nullable: true
+              description: Chỉ trả về khi trạng thái >= PUBLISHED
+            final_total:
+              type: string
+              nullable: true
+              description: Chỉ trả về khi trạng thái == FINALIZED
+            submitted_at:
+              type: string
+              format: date-time
+              nullable: true
+            published_at:
+              type: string
+              format: date-time
+              nullable: true
+            appeal_deadline_at:
+              type: string
+              format: date-time
+              nullable: true
+            info_round:
+              type: integer
+              example: 0
+            proof_round:
+              type: integer
+              example: 0
+        criteria:
+          type: array
+          items:
+            $ref: '#/components/schemas/Criterion'
+        claims:
+          type: array
+          items:
+            $ref: '#/components/schemas/Claim'
+        supplement_requests:
+          type: array
+          items:
+            $ref: '#/components/schemas/SupplementRequest'
+        appeals:
+          type: array
+          items:
+            $ref: '#/components/schemas/Appeal'
+        unread_notifications_count:
+          type: integer
+          example: 0
+
+    BcsCampaignOverview:
+      type: object
+      required:
+        - campaign_id
+        - total_students
+        - not_submitted_count
+        - bcs_review_count
+        - needs_info_count
+        - needs_proof_count
+        - proposed_count
+        - published_count
+        - open_appeals_count
+        - finalized_count
+      properties:
+        campaign_id:
+          type: string
+          format: uuid
+        total_students:
+          type: integer
+          example: 45
+        not_submitted_count:
+          type: integer
+          example: 5
+        bcs_review_count:
+          type: integer
+          example: 20
+        needs_info_count:
+          type: integer
+          example: 3
+        needs_proof_count:
+          type: integer
+          example: 2
+        proposed_count:
+          type: integer
+          example: 10
+        published_count:
+          type: integer
+          example: 5
+        open_appeals_count:
+          type: integer
+          example: 2
+        finalized_count:
+          type: integer
+          example: 0
+
+    BcsCaseListItem:
+      type: object
+      required:
+        - id
+        - student_code
+        - student_name
+        - status
+        - claimed_total
+        - proposed_total
+        - info_round
+        - proof_round
+        - updated_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        student_code:
+          type: string
+          example: "SV001"
+        student_name:
+          type: string
+          example: "Nguyễn Văn A"
+        status:
+          $ref: '#/components/schemas/CaseStatus'
+        claimed_total:
+          type: string
+          nullable: true
+          example: "85.00"
+        proposed_total:
+          type: string
+          nullable: true
+          example: "80.00"
+        info_round:
+          type: integer
+          example: 0
+        proof_round:
+          type: integer
+          example: 1
+        updated_at:
+          type: string
+          format: date-time
+
+    BcsCaseDetail:
+      type: object
+      required:
+        - id
+        - version
+        - status
+        - student
+        - deadlines
+        - rounds
+        - claims
+        - review_mode
+        - history
+      properties:
+        id:
+          type: string
+          format: uuid
+        version:
+          type: integer
+          example: 4
+        status:
+          $ref: '#/components/schemas/CaseStatus'
+        student:
+          type: object
+          required:
+            - id
+            - code
+            - full_name
+          properties:
+            id:
+              type: string
+              format: uuid
+            code:
+              type: string
+              example: "SV001"
+            full_name:
+              type: string
+              example: "Sinh viên demo"
+        deadlines:
+          type: object
+          properties:
+            submission_at:
+              type: string
+              format: date-time
+              nullable: true
+            supplement_at:
+              type: string
+              format: date-time
+              nullable: true
+        rounds:
+          type: object
+          required:
+            - info
+            - info_max
+            - proof
+            - proof_max
+          properties:
+            info:
+              type: integer
+              example: 0
+            info_max:
+              type: integer
+              example: 2
+            proof:
+              type: integer
+              example: 0
+            proof_max:
+              type: integer
+              example: 2
+        claims:
+          type: array
+          items:
+            type: object
+            required:
+              - criterion
+              - self_score
+              - approved_score
+              - bcs_reason
+              - evidence
+            properties:
+              criterion:
+                $ref: '#/components/schemas/Criterion'
+              self_score:
+                type: string
+                nullable: true
+                example: "8.00"
+              student_note:
+                type: string
+                nullable: true
+              approved_score:
+                type: string
+                nullable: true
+                example: "8.00"
+              bcs_reason:
+                type: string
+                nullable: true
+              evidence:
+                type: array
+                items:
+                  $ref: '#/components/schemas/EvidenceFile'
+        supplement_requests:
+          type: array
+          items:
+            $ref: '#/components/schemas/SupplementRequest'
+        review_mode:
+          type: string
+          example: "MANUAL"
+        history:
+          type: array
+          items:
+            type: object
+            required:
+              - action
+              - at
+              - actor
+            properties:
+              action:
+                type: string
+                example: "CASE_SUBMITTED"
+              at:
+                type: string
+                format: date-time
+              actor:
+                type: string
+                example: "SV001"
+
+    ScoreboardResponse:
+      type: object
+      required:
+        - campaign_id
+        - can_publish
+        - meetings
+        - items
+      properties:
+        campaign_id:
+          type: string
+          format: uuid
+        can_publish:
+          type: boolean
+          example: true
+        meetings:
+          type: array
+          items:
+            $ref: '#/components/schemas/Meeting'
+        items:
+          type: array
+          items:
+            type: object
+            required:
+              - student_code
+              - student_name
+              - status
+              - claimed_total
+              - proposed_total
+              - final_total
+            properties:
+              case_id:
+                type: string
+                format: uuid
+              student_code:
+                type: string
+                example: "SV001"
+              student_name:
+                type: string
+                example: "Nguyễn Văn A"
+              status:
+                $ref: '#/components/schemas/CaseStatus'
+              claimed_total:
+                type: string
+                nullable: true
+                example: "85.00"
+              proposed_total:
+                type: string
+                nullable: true
+                example: "80.00"
+              final_total:
+                type: string
+                nullable: true
+                example: "80.00"
+
+    AppealDetailItem:
+      type: object
+      required:
+        - id
+        - case_id
+        - student_code
+        - student_name
+        - criterion_code
+        - criterion_title
+        - self_score
+        - proposed_score
+        - student_reason
+        - status
+        - resolution
+        - new_score
+        - bcs_reason
+      properties:
+        id:
+          type: string
+          format: uuid
+        case_id:
+          type: string
+          format: uuid
+        student_code:
+          type: string
+          example: "SV001"
+        student_name:
+          type: string
+          example: "Nguyễn Văn A"
+        criterion_code:
+          type: string
+          example: "TC01"
+        criterion_title:
+          type: string
+          example: "Tiêu chí 1"
+        self_score:
+          type: string
+          example: "10.00"
+        proposed_score:
+          type: string
+          example: "7.00"
+        student_reason:
+          type: string
+          example: "Em có bổ sung giấy chứng nhận"
+        status:
+          $ref: '#/components/schemas/AppealStatus'
+        resolution:
+          $ref: '#/components/schemas/AppealResolution'
+          nullable: true
+        new_score:
+          type: string
+          nullable: true
+        bcs_reason:
+          type: string
+          nullable: true
+        evidence:
+          type: array
+          items:
+            $ref: '#/components/schemas/EvidenceFile'
+
+    NotificationItem:
+      type: object
+      required:
+        - id
+        - title
+        - body
+        - type
+        - read_at
+        - created_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        case_id:
+          type: string
+          format: uuid
+          nullable: true
+        title:
+          type: string
+          example: "Yêu cầu bổ sung minh chứng"
+        body:
+          type: string
+          example: "BCS yêu cầu bạn bổ sung minh chứng cho tiêu chí TC01 trước ngày 28/10."
+        type:
+          type: string
+          example: "NEEDS_PROOF"
+        read_at:
+          type: string
+          format: date-time
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+
+    ErrorDetail:
+      type: object
+      required:
+        - error
+      properties:
+        error:
+          type: object
+          required:
+            - code
+            - message
+          properties:
+            code:
+              type: string
+              example: "CASE_CHANGED"
+            message:
+              type: string
+              example: "Hồ sơ đã thay đổi, vui lòng tải lại."
+            fields:
+              type: object
+              additionalProperties:
+                type: string
+              example: {}
+
+  responses:
+    Error400:
+      description: Dữ liệu gửi lên sai quy cách
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorDetail'
+    Error401:
+      description: Chưa đăng nhập hoặc phiên hết hạn
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorDetail'
+    Error403:
+      description: Không có quyền truy cập tài nguyên này
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorDetail'
+    Error404:
+      description: Không tìm thấy tài nguyên
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorDetail'
+    Error409:
+      description: Xung đột trạng thái hoặc sai phiên bản hồ sơ
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorDetail'
+    Error422:
+      description: Dữ liệu vi phạm ràng buộc nghiệp vụ
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorDetail'

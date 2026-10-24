@@ -1,0 +1,1532 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:bioc="http://bpmn.io/schema/bpmn/biocolor/1.0" id="Definitions_Nhom8_ToBe_Advanced" targetNamespace="https://mis3047.nhom8.local/to-be-advanced" exporter="MIS3047 BPMN 2.0" exporterVersion="6.0">
+  <bpmn:message id="Msg_Campaign" name="Thông báo mở đợt chấm điểm"/>
+  <bpmn:message id="Msg_Submission" name="Bảng tự chấm và minh chứng"/>
+  <bpmn:message id="Msg_FixInfoRequest" name="Yêu cầu bổ sung thông tin"/>
+  <bpmn:message id="Msg_InfoUpdate" name="Hồ sơ bổ sung thông tin"/>
+  <bpmn:message id="Msg_ProofRequest" name="Yêu cầu bổ sung minh chứng"/>
+  <bpmn:message id="Msg_ProofUpdate" name="Minh chứng đã bổ sung"/>
+  <bpmn:message id="Msg_CaseClosed" name="Thông báo đóng hồ sơ quá hạn"/>
+  <bpmn:message id="Msg_Draft" name="Thông báo điểm dự kiến"/>
+  <bpmn:message id="Msg_Reminder" name="Nhắc nhở hạn phản hồi"/>
+  <bpmn:message id="Msg_Accept" name="Xác nhận đồng ý điểm"/>
+  <bpmn:message id="Msg_Appeal" name="Giải trình / khiếu nại điểm"/>
+  <bpmn:message id="Msg_Resolution" name="Kết quả giải quyết khiếu nại"/>
+  <bpmn:message id="Msg_Final" name="Bảng điểm đã chốt chuyển GVCN"/>
+  <bpmn:message id="Msg_AutoAccepted" name="Thông báo hết hạn phản hồi – điểm được tự động chấp nhận"/>
+  <bpmn:error id="Error_AIProcessing" name="Không thể phân tích minh chứng bằng AI" errorCode="AI_DOC_READ_FAILURE"/>
+  <bpmn:resource id="Res_BCS" name="Ban cán sự lớp"/>
+  <bpmn:collaboration id="Collaboration_ToBe_Advanced" name="Cộng tác chấm điểm rèn luyện – TO-BE">
+    <bpmn:participant id="Pool_Student" name="Sinh viên" processRef="Process_Student">
+      <bpmn:participantMultiplicity minimum="1" maximum="1000"/>
+    </bpmn:participant>
+    <bpmn:participant id="Pool_School" name="Nhà trường: hệ thống và ban cán sự" processRef="Process_School"/>
+    <bpmn:participant id="Pool_GVCN" name="Giáo viên chủ nhiệm (bên nhận)"/>
+    <bpmn:messageFlow id="MF01" name="Mở đợt" sourceRef="SC_Notify" targetRef="ST_Start" messageRef="Msg_Campaign"/>
+    <bpmn:messageFlow id="MF02" name="Nộp tự chấm" sourceRef="ST_Submit" targetRef="SC_GetSubmission" messageRef="Msg_Submission"/>
+    <bpmn:messageFlow id="MF03" name="Yêu cầu bổ sung thông tin" sourceRef="SC_MissingNotice" targetRef="ES_Info_Start" messageRef="Msg_FixInfoRequest"/>
+    <bpmn:messageFlow id="MF04" name="Nộp bổ sung" sourceRef="ST_SendInfo" targetRef="SC_GetInfo" messageRef="Msg_InfoUpdate"/>
+    <bpmn:messageFlow id="MF05" name="Hồ sơ quá hạn" sourceRef="SC_CloseIncomplete" targetRef="ES_Closed_Start" messageRef="Msg_CaseClosed"/>
+    <bpmn:messageFlow id="MF06" name="Yêu cầu bổ sung minh chứng" sourceRef="SC_RequestProof" targetRef="ES_Proof_Start" messageRef="Msg_ProofRequest"/>
+    <bpmn:messageFlow id="MF07" name="Cập nhật minh chứng" sourceRef="ST_SendProof" targetRef="SC_GetProof" messageRef="Msg_ProofUpdate"/>
+    <bpmn:messageFlow id="MF08" name="Thông báo điểm dự kiến" sourceRef="SC_NotifyDraft" targetRef="ST_GetDraft" messageRef="Msg_Draft"/>
+    <bpmn:messageFlow id="MF13" name="Nhắc hạn" sourceRef="SC_SendReminder" targetRef="ES_Remind_Start" messageRef="Msg_Reminder"/>
+    <bpmn:messageFlow id="MF09" name="Đồng ý điểm" sourceRef="ST_SendAccept" targetRef="SC_GetAccept" messageRef="Msg_Accept"/>
+    <bpmn:messageFlow id="MF10" name="Gửi giải trình" sourceRef="ST_SendAppeal" targetRef="SC_GetAppeal" messageRef="Msg_Appeal"/>
+    <bpmn:messageFlow id="MF11" name="Phản hồi giải trình" sourceRef="SC_ReplyAppeal" targetRef="ST_GetResolution" messageRef="Msg_Resolution"/>
+    <bpmn:messageFlow id="MF12" name="Bảng điểm đã chốt" sourceRef="SC_SendFinal" targetRef="Pool_GVCN" messageRef="Msg_Final"/>
+    <bpmn:messageFlow id="MF14" name="Đóng hồ sơ do không nộp" sourceRef="SC_RecordNoSubmit" targetRef="ES_Closed_Start" messageRef="Msg_CaseClosed"/>
+    <bpmn:messageFlow id="MF15" name="Hết hạn – tự động chấp nhận" sourceRef="SC_AutoAccept" targetRef="ES_AutoAccept_Start" messageRef="Msg_AutoAccepted"/>
+  </bpmn:collaboration>
+  <bpmn:process id="Process_Student" name="Sinh viên tự đánh giá, bổ sung và phản hồi" isExecutable="false">
+    <bpmn:startEvent id="ST_Start" name="Nhận thông báo mở đợt">
+      <bpmn:outgoing>FST01</bpmn:outgoing>
+      <bpmn:messageEventDefinition id="EventDef_ST_Start" messageRef="Msg_Campaign"/>
+    </bpmn:startEvent>
+    <bpmn:userTask id="ST_Login" name="Đăng nhập cổng sinh viên">
+      <bpmn:incoming>FST01</bpmn:incoming>
+      <bpmn:outgoing>FST02</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:userTask id="ST_Self" name="Tự chấm điểm và đính kèm minh chứng">
+      <bpmn:incoming>FST02</bpmn:incoming>
+      <bpmn:outgoing>FST03</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:userTask id="ST_Submit" name="Nộp bảng tự chấm và minh chứng">
+      <bpmn:incoming>FST03</bpmn:incoming>
+      <bpmn:outgoing>FST04</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:intermediateCatchEvent id="ST_GetDraft" name="Nhận điểm dự kiến">
+      <bpmn:incoming>FST04</bpmn:incoming>
+      <bpmn:outgoing>FST08</bpmn:outgoing>
+      <bpmn:messageEventDefinition id="EventDef_ST_GetDraft" messageRef="Msg_Draft"/>
+    </bpmn:intermediateCatchEvent>
+    <bpmn:userTask id="ST_View" name="Xem điểm dự kiến và quyết định phản hồi">
+      <bpmn:incoming>FST08</bpmn:incoming>
+      <bpmn:outgoing>FST09</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:boundaryEvent id="ST_ViewTimeout" name="Hết hạn phản hồi" attachedToRef="ST_View" cancelActivity="true">
+      <bpmn:documentation>Timer boundary ngắt gắn vào bước chờ quyết định của sinh viên (xem điểm và quyết định phản hồi): hết hạn mà chưa phản hồi thì coi như chấp nhận điểm. Lưu ý v5: đây chỉ là lớp tiện ích phía sinh viên; việc đóng phiên khi hết hạn ở MỌI bước (xem điểm, soạn giải trình, soạn xác nhận) do thông điệp của nhà trường (MF15) kích hoạt event sub-process ES_AutoAccept, vì nhà trường là bên giữ đồng hồ chuẩn. Thời hạn là tham số cấu hình (Tobe.docx chưa quy định số ngày cụ thể); nhà trường/BCS khai báo khi triển khai.</bpmn:documentation>
+      <bpmn:outgoing>FST16</bpmn:outgoing>
+      <bpmn:timerEventDefinition id="EventDef_ST_ViewTimeout"><bpmn:timeDuration xsi:type="bpmn:tFormalExpression">${appealPeriod}</bpmn:timeDuration></bpmn:timerEventDefinition>
+    </bpmn:boundaryEvent>
+    <bpmn:endEvent id="ST_EndSilent" name="Hết hạn phản hồi – điểm được tự động chấp nhận">
+      <bpmn:incoming>FST16</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:exclusiveGateway id="ST_GAppeal" default="FST13" name="Có khiếu nại?">
+      <bpmn:incoming>FST09</bpmn:incoming>
+      <bpmn:outgoing>FST10</bpmn:outgoing>
+      <bpmn:outgoing>FST13</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+    <bpmn:userTask id="ST_SendAppeal" name="Lập giải trình khiếu nại và nộp">
+      <bpmn:incoming>FST10</bpmn:incoming>
+      <bpmn:outgoing>FST11</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:intermediateCatchEvent id="ST_GetResolution" name="Nhận kết quả giải trình">
+      <bpmn:incoming>FST11</bpmn:incoming>
+      <bpmn:outgoing>FST12</bpmn:outgoing>
+      <bpmn:messageEventDefinition id="EventDef_ST_GetResolution" messageRef="Msg_Resolution"/>
+    </bpmn:intermediateCatchEvent>
+    <bpmn:endEvent id="ST_EndAppeal" name="Đã nhận kết quả giải quyết">
+      <bpmn:incoming>FST12</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:userTask id="ST_SendAccept" name="Xác nhận đồng ý điểm và nộp">
+      <bpmn:incoming>FST13</bpmn:incoming>
+      <bpmn:outgoing>FST14</bpmn:outgoing>
+    </bpmn:userTask>
+    <bpmn:endEvent id="ST_EndAccept" name="Đã xác nhận điểm">
+      <bpmn:incoming>FST14</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:subProcess id="ES_Info" name="Event sub-process: bổ sung hồ sơ khi được yêu cầu" triggeredByEvent="true">
+      <bpmn:documentation>Event sub-process phía sinh viên (message start, không ngắt): mỗi khi nhận yêu cầu bổ sung hồ sơ thì sinh viên nộp lại; có thể lặp nhiều lần mà không cần vòng lặp trong luồng chính.</bpmn:documentation>
+      <bpmn:startEvent id="ES_Info_Start" name="Nhận yêu cầu bổ sung hồ sơ" isInterrupting="false">
+        <bpmn:outgoing>FES_I1</bpmn:outgoing>
+        <bpmn:messageEventDefinition id="EventDef_ES_Info_Start" messageRef="Msg_FixInfoRequest"/>
+      </bpmn:startEvent>
+      <bpmn:userTask id="ST_SendInfo" name="Bổ sung thông tin hồ sơ và nộp lại">
+        <bpmn:incoming>FES_I1</bpmn:incoming>
+        <bpmn:outgoing>FES_I2</bpmn:outgoing>
+      </bpmn:userTask>
+      <bpmn:endEvent id="ES_Info_End" name="Đã nộp bổ sung">
+        <bpmn:incoming>FES_I2</bpmn:incoming>
+      </bpmn:endEvent>
+      <bpmn:sequenceFlow id="FES_I1" sourceRef="ES_Info_Start" targetRef="ST_SendInfo"/>
+      <bpmn:sequenceFlow id="FES_I2" sourceRef="ST_SendInfo" targetRef="ES_Info_End"/>
+    </bpmn:subProcess>
+    <bpmn:subProcess id="ES_Proof" name="Event sub-process: bổ sung minh chứng khi được yêu cầu" triggeredByEvent="true">
+      <bpmn:documentation>Event sub-process phía sinh viên (message start, không ngắt): mỗi khi nhận yêu cầu bổ sung minh chứng thì sinh viên nộp lại.</bpmn:documentation>
+      <bpmn:startEvent id="ES_Proof_Start" name="Nhận yêu cầu bổ sung minh chứng" isInterrupting="false">
+        <bpmn:outgoing>FES_P1</bpmn:outgoing>
+        <bpmn:messageEventDefinition id="EventDef_ES_Proof_Start" messageRef="Msg_ProofRequest"/>
+      </bpmn:startEvent>
+      <bpmn:userTask id="ST_SendProof" name="Bổ sung minh chứng và nộp lại">
+        <bpmn:incoming>FES_P1</bpmn:incoming>
+        <bpmn:outgoing>FES_P2</bpmn:outgoing>
+      </bpmn:userTask>
+      <bpmn:endEvent id="ES_Proof_End" name="Đã nộp minh chứng">
+        <bpmn:incoming>FES_P2</bpmn:incoming>
+      </bpmn:endEvent>
+      <bpmn:sequenceFlow id="FES_P1" sourceRef="ES_Proof_Start" targetRef="ST_SendProof"/>
+      <bpmn:sequenceFlow id="FES_P2" sourceRef="ST_SendProof" targetRef="ES_Proof_End"/>
+    </bpmn:subProcess>
+    <bpmn:subProcess id="ES_Remind" name="Event sub-process: nhận nhắc nhở hạn phản hồi" triggeredByEvent="true">
+      <bpmn:documentation>Event sub-process phía sinh viên (message start, không ngắt): nhận nhắc nhở hạn phản hồi từ nhà trường.</bpmn:documentation>
+      <bpmn:startEvent id="ES_Remind_Start" name="Nhận nhắc nhở" isInterrupting="false">
+        <bpmn:outgoing>FES_R1</bpmn:outgoing>
+        <bpmn:messageEventDefinition id="EventDef_ES_Remind_Start" messageRef="Msg_Reminder"/>
+      </bpmn:startEvent>
+      <bpmn:endEvent id="ES_Remind_End" name="Đã đọc nhắc nhở">
+        <bpmn:incoming>FES_R1</bpmn:incoming>
+      </bpmn:endEvent>
+      <bpmn:sequenceFlow id="FES_R1" sourceRef="ES_Remind_Start" targetRef="ES_Remind_End"/>
+    </bpmn:subProcess>
+    <bpmn:subProcess id="ES_Closed" name="Event sub-process: nhận thông báo đóng hồ sơ" triggeredByEvent="true">
+      <bpmn:documentation>Event sub-process phía sinh viên (message start, NGẮT): nhà trường là bên giữ đồng hồ nên khi đóng hồ sơ (không nộp đúng hạn, hoặc quá hạn bổ sung) sẽ gửi Msg_CaseClosed; sinh viên đang ở bất kỳ bước nào (đăng nhập, tự chấm, nộp, chờ kết quả) đều được đóng phiên sạch, không còn token treo. Thay cho nhánh ST_WaitReply/ST_GetClosed của v4.</bpmn:documentation>
+      <bpmn:startEvent id="ES_Closed_Start" name="Nhận thông báo đóng hồ sơ" isInterrupting="true">
+        <bpmn:outgoing>FES_C1</bpmn:outgoing>
+        <bpmn:messageEventDefinition id="EventDef_ES_Closed_Start" messageRef="Msg_CaseClosed"/>
+      </bpmn:startEvent>
+      <bpmn:endEvent id="ES_Closed_End" name="Hồ sơ không hoàn tất đúng hạn">
+        <bpmn:incoming>FES_C1</bpmn:incoming>
+      </bpmn:endEvent>
+      <bpmn:sequenceFlow id="FES_C1" sourceRef="ES_Closed_Start" targetRef="ES_Closed_End"/>
+    </bpmn:subProcess>
+    <bpmn:subProcess id="ES_AutoAccept" name="Event sub-process: hết hạn phản hồi (tự động chấp nhận)" triggeredByEvent="true">
+      <bpmn:documentation>Event sub-process phía sinh viên (message start, NGẮT): khi nhà trường hết hạn đồng ý/khiếu nại và tự động chấp nhận điểm (SC_AutoAccept) thì gửi Msg_AutoAccepted; sinh viên đang xem điểm hoặc đang soạn giải trình/xác nhận đều được đóng phiên, không bị treo ở ST_GetResolution. Nhà trường chỉ gửi thông điệp này khi chưa nhận đồng ý/khiếu nại (nhánh loại trừ của SC_WaitAppeal) nên không cắt nhầm sinh viên đang chờ kết quả giải trình.</bpmn:documentation>
+      <bpmn:startEvent id="ES_AutoAccept_Start" name="Nhận thông báo hết hạn phản hồi" isInterrupting="true">
+        <bpmn:outgoing>FES_A1</bpmn:outgoing>
+        <bpmn:messageEventDefinition id="EventDef_ES_AutoAccept_Start" messageRef="Msg_AutoAccepted"/>
+      </bpmn:startEvent>
+      <bpmn:endEvent id="ES_AutoAccept_End" name="Hết hạn phản hồi – điểm được tự động chấp nhận">
+        <bpmn:incoming>FES_A1</bpmn:incoming>
+      </bpmn:endEvent>
+      <bpmn:sequenceFlow id="FES_A1" sourceRef="ES_AutoAccept_Start" targetRef="ES_AutoAccept_End"/>
+    </bpmn:subProcess>
+    <bpmn:sequenceFlow id="FST01" sourceRef="ST_Start" targetRef="ST_Login"/>
+    <bpmn:sequenceFlow id="FST02" sourceRef="ST_Login" targetRef="ST_Self"/>
+    <bpmn:sequenceFlow id="FST03" sourceRef="ST_Self" targetRef="ST_Submit"/>
+    <bpmn:sequenceFlow id="FST04" sourceRef="ST_Submit" targetRef="ST_GetDraft"/>
+    <bpmn:sequenceFlow id="FST08" sourceRef="ST_GetDraft" targetRef="ST_View"/>
+    <bpmn:sequenceFlow id="FST09" sourceRef="ST_View" targetRef="ST_GAppeal"/>
+    <bpmn:sequenceFlow id="FST10" name="Có" sourceRef="ST_GAppeal" targetRef="ST_SendAppeal"><bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${appealFiled}</bpmn:conditionExpression></bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="FST11" sourceRef="ST_SendAppeal" targetRef="ST_GetResolution"/>
+    <bpmn:sequenceFlow id="FST12" sourceRef="ST_GetResolution" targetRef="ST_EndAppeal"/>
+    <bpmn:sequenceFlow id="FST13" name="Không" sourceRef="ST_GAppeal" targetRef="ST_SendAccept"/>
+    <bpmn:sequenceFlow id="FST14" sourceRef="ST_SendAccept" targetRef="ST_EndAccept"/>
+    <bpmn:sequenceFlow id="FST16" sourceRef="ST_ViewTimeout" targetRef="ST_EndSilent"/>
+  </bpmn:process>
+  <bpmn:process id="Process_School" name="Điều phối, AI thẩm định, họp lớp và chốt điểm" isExecutable="false">
+    <bpmn:documentation>TO-BE v6 (vá v4/v5 sau rà soát token giữa 2 pool và nhắc hạn): hai multi-instance (xử lý hồ sơ từng SV; phản hồi và khiếu nại từng SV) tách khỏi các bước cấp lớp (họp BCS, họp lớp, công bố, chốt, gửi GVCN).</bpmn:documentation>
+    <bpmn:laneSet id="LaneSet_School">
+      <bpmn:lane id="Lane_System" name="Hệ thống / AI Agent">
+        <bpmn:flowNodeRef>SC_Start</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>SC_Notify</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>SC_PerStudent</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>SC_RespPerStudent</bpmn:flowNodeRef>
+      </bpmn:lane>
+      <bpmn:lane id="Lane_BCS" name="Ban cán sự lớp">
+        <bpmn:flowNodeRef>SC_MeetBCS</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>SC_ReviewDraft</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>SC_ClassMeeting</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>SC_PublishDraft</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>SC_Finalize</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>SC_SendFinal</bpmn:flowNodeRef>
+        <bpmn:flowNodeRef>SC_End</bpmn:flowNodeRef>
+      </bpmn:lane>
+    </bpmn:laneSet>
+    <bpmn:startEvent id="SC_Start" name="Đến kỳ mở chấm điểm">
+      <bpmn:documentation>Thời điểm mở đợt chấm điểm (campaignOpenAt). Thời hạn là tham số cấu hình (Tobe.docx chưa quy định số ngày cụ thể); nhà trường/BCS khai báo khi triển khai.</bpmn:documentation>
+      <bpmn:outgoing>FSC01</bpmn:outgoing>
+      <bpmn:timerEventDefinition id="EventDef_SC_Start"><bpmn:timeDate xsi:type="bpmn:tFormalExpression">${campaignOpenAt}</bpmn:timeDate></bpmn:timerEventDefinition>
+    </bpmn:startEvent>
+    <bpmn:sendTask id="SC_Notify" name="Tự động thông báo mở đợt" messageRef="Msg_Campaign">
+      <bpmn:incoming>FSC01</bpmn:incoming>
+      <bpmn:outgoing>FSC02</bpmn:outgoing>
+    </bpmn:sendTask>
+    <bpmn:subProcess id="SC_PerStudent" name="Xử lý hồ sơ từng sinh viên (multi-instance)">
+      <bpmn:documentation>Multi-instance song song, mỗi sinh viên một instance: nhận hồ sơ (có hạn nộp), kiểm tra đầy đủ, AI đọc và kiểm tra, xử lý cờ, ra quyết định điểm dự kiến. Họp BCS, họp lớp và công bố chỉ chạy một lần cho cả lớp sau khi mọi instance hoàn tất.</bpmn:documentation>
+      <bpmn:incoming>FSC02</bpmn:incoming>
+      <bpmn:outgoing>FSC31</bpmn:outgoing>
+      <bpmn:ioSpecification id="IO_PerStudent">
+        <bpmn:dataInput id="DIn_StudentList" name="Danh sách sinh viên của lớp" isCollection="true"/>
+        <bpmn:inputSet id="InSet_PerStudent"><bpmn:dataInputRefs>DIn_StudentList</bpmn:dataInputRefs></bpmn:inputSet>
+        <bpmn:outputSet id="OutSet_PerStudent"/>
+      </bpmn:ioSpecification>
+      <bpmn:multiInstanceLoopCharacteristics id="MI_PerStudent" isSequential="false">
+        <bpmn:loopDataInputRef>DIn_StudentList</bpmn:loopDataInputRef>
+        <bpmn:inputDataItem id="Item_Student" name="Sinh viên"/>
+      </bpmn:multiInstanceLoopCharacteristics>
+      <bpmn:startEvent id="PST_Start" name="Bắt đầu xử lý SV">
+        <bpmn:outgoing>FPST01</bpmn:outgoing>
+      </bpmn:startEvent>
+      <bpmn:eventBasedGateway id="SC_WaitSubmission" name="Chờ hồ sơ / hết hạn nộp">
+        <bpmn:incoming>FPST01</bpmn:incoming>
+        <bpmn:outgoing>FSC_W1</bpmn:outgoing>
+        <bpmn:outgoing>FSC_W2</bpmn:outgoing>
+      </bpmn:eventBasedGateway>
+      <bpmn:intermediateCatchEvent id="SC_GetSubmission" name="Nhận hồ sơ tự chấm">
+        <bpmn:incoming>FSC_W1</bpmn:incoming>
+        <bpmn:outgoing>FSC03</bpmn:outgoing>
+        <bpmn:messageEventDefinition id="EventDef_SC_GetSubmission" messageRef="Msg_Submission"/>
+      </bpmn:intermediateCatchEvent>
+      <bpmn:intermediateCatchEvent id="SC_SubmissionTimeout" name="Hết hạn nộp hồ sơ">
+        <bpmn:documentation>Hạn nộp hồ sơ tự chấm (submissionDeadline). Thời hạn là tham số cấu hình (Tobe.docx chưa quy định số ngày cụ thể); nhà trường/BCS khai báo khi triển khai.</bpmn:documentation>
+        <bpmn:incoming>FSC_W2</bpmn:incoming>
+        <bpmn:outgoing>FSC_W3</bpmn:outgoing>
+        <bpmn:timerEventDefinition id="EventDef_SC_SubmissionTimeout"><bpmn:timeDate xsi:type="bpmn:tFormalExpression">${submissionDeadline}</bpmn:timeDate></bpmn:timerEventDefinition>
+      </bpmn:intermediateCatchEvent>
+      <bpmn:sendTask id="SC_RecordNoSubmit" name="Ghi nhận SV không nộp, báo BCS và thông báo đóng hồ sơ" messageRef="Msg_CaseClosed">
+        <bpmn:documentation>Ghi nhận sinh viên không nộp hồ sơ trong hạn, báo ban cán sự xử lý theo quy chế của nhà trường (quy chế cụ thể ngoài phạm vi tài liệu TO-BE) và gửi Msg_CaseClosed cho sinh viên (MF14) để phiên phía sinh viên kết thúc, không bị treo (v5: đổi từ serviceTask sang sendTask).</bpmn:documentation>
+        <bpmn:incoming>FSC_W3</bpmn:incoming>
+        <bpmn:outgoing>FSC_W4</bpmn:outgoing>
+      </bpmn:sendTask>
+      <bpmn:endEvent id="PST_EndNoSubmit" name="Kết thúc: SV không nộp hồ sơ">
+        <bpmn:incoming>FSC_W4</bpmn:incoming>
+      </bpmn:endEvent>
+      <bpmn:serviceTask id="SC_CheckCompleteness" name="Agent điều phối: kiểm tra độ đầy đủ">
+        <bpmn:incoming>FSC03</bpmn:incoming>
+        <bpmn:incoming>FSC09</bpmn:incoming>
+        <bpmn:outgoing>FSC04</bpmn:outgoing>
+      </bpmn:serviceTask>
+      <bpmn:exclusiveGateway id="SC_GComplete" name="Hồ sơ đầy đủ?" default="FSC06b">
+        <bpmn:documentation>v5: chặn vòng lặp bổ sung vô hạn. infoRound đếm số lần đã yêu cầu bổ sung thông tin (tăng 1 mỗi lần SC_MissingNotice gửi); maxInfoRounds là tham số cấu hình. Hết lượt mà vẫn thiếu thì đóng hồ sơ.</bpmn:documentation>
+        <bpmn:incoming>FSC04</bpmn:incoming>
+        <bpmn:outgoing>FSC05</bpmn:outgoing>
+        <bpmn:outgoing>FSC06</bpmn:outgoing>
+        <bpmn:outgoing>FSC06b</bpmn:outgoing>
+      </bpmn:exclusiveGateway>
+      <bpmn:serviceTask id="SC_Package" name="Agent điều phối: chuẩn hóa và đóng gói">
+        <bpmn:incoming>FSC05</bpmn:incoming>
+        <bpmn:outgoing>FSC13</bpmn:outgoing>
+      </bpmn:serviceTask>
+      <bpmn:sendTask id="SC_MissingNotice" name="Yêu cầu bổ sung thông tin" messageRef="Msg_FixInfoRequest">
+        <bpmn:documentation>Mỗi lần gửi: infoRound = infoRound + 1. Mỗi vòng vẫn có hạn riêng supplementPeriod; tổng thời gian tối đa = maxInfoRounds × supplementPeriod.</bpmn:documentation>
+        <bpmn:incoming>FSC06</bpmn:incoming>
+        <bpmn:outgoing>FSC07</bpmn:outgoing>
+      </bpmn:sendTask>
+      <bpmn:eventBasedGateway id="SC_WaitInfo" name="Chờ hồ sơ bổ sung / quá hạn">
+        <bpmn:incoming>FSC07</bpmn:incoming>
+        <bpmn:outgoing>FSC08</bpmn:outgoing>
+        <bpmn:outgoing>FSC10</bpmn:outgoing>
+      </bpmn:eventBasedGateway>
+      <bpmn:intermediateCatchEvent id="SC_GetInfo" name="Nhận hồ sơ cập nhật">
+        <bpmn:incoming>FSC08</bpmn:incoming>
+        <bpmn:outgoing>FSC09</bpmn:outgoing>
+        <bpmn:messageEventDefinition id="EventDef_SC_GetInfo" messageRef="Msg_InfoUpdate"/>
+      </bpmn:intermediateCatchEvent>
+      <bpmn:intermediateCatchEvent id="SC_InfoTimeout" name="Hết hạn bổ sung thông tin">
+        <bpmn:documentation>Hạn bổ sung thông tin (supplementPeriod). Thời hạn là tham số cấu hình (Tobe.docx chưa quy định số ngày cụ thể); nhà trường/BCS khai báo khi triển khai.</bpmn:documentation>
+        <bpmn:incoming>FSC10</bpmn:incoming>
+        <bpmn:outgoing>FSC11</bpmn:outgoing>
+        <bpmn:timerEventDefinition id="EventDef_SC_InfoTimeout"><bpmn:timeDuration xsi:type="bpmn:tFormalExpression">${supplementPeriod}</bpmn:timeDuration></bpmn:timerEventDefinition>
+      </bpmn:intermediateCatchEvent>
+      <bpmn:sendTask id="SC_CloseIncomplete" name="Ghi nhận quá hạn và thông báo đóng hồ sơ" messageRef="Msg_CaseClosed">
+        <bpmn:incoming>FSC11</bpmn:incoming>
+        <bpmn:incoming>FSC06b</bpmn:incoming>
+        <bpmn:outgoing>FSC12</bpmn:outgoing>
+      </bpmn:sendTask>
+      <bpmn:endEvent id="SC_EndIncomplete" name="Kết thúc hồ sơ không hoàn tất">
+        <bpmn:incoming>FSC12</bpmn:incoming>
+      </bpmn:endEvent>
+      <bpmn:subProcess id="SC_AlertEventSub" name="Event sub-process: cảnh báo minh chứng bị gắn cờ" triggeredByEvent="true">
+        <bpmn:documentation>Chạy song song, không ngắt luồng chính: khi alertPending = true thì Agent điều phối tạo cảnh báo gửi ban cán sự. Đây là bước hiện thực yêu cầu in đậm trong Tobe.docx ("Agent Điều phối gửi thông báo cần sự can thiệp của ban cán sự"). v5: dùng MỘT biến alertPending thay cho cặp evidenceFlagged/alertSent để mỗi lần gắn cờ (kể cả lần 2 sau khi SV bổ sung minh chứng) đều tạo được một chuyển false→true mới.</bpmn:documentation>
+        <bpmn:startEvent id="EA_Start" name="Có minh chứng bị gắn cờ" isInterrupting="false">
+          <bpmn:outgoing>FEA01</bpmn:outgoing>
+          <bpmn:conditionalEventDefinition id="EventDef_EA_Start"><bpmn:condition xsi:type="bpmn:tFormalExpression">${alertPending}</bpmn:condition></bpmn:conditionalEventDefinition>
+        </bpmn:startEvent>
+        <bpmn:serviceTask id="EA_SendAlert" name="Agent điều phối tạo cảnh báo gửi ban cán sự">
+          <bpmn:documentation>Thông báo nội bộ trong cùng pool nên dùng service task (không có message flow). Sau khi gửi đặt alertPending = false; SC_Flag sẽ đặt lại alertPending = true ở lần gắn cờ kế tiếp nên không cần bước reset riêng khi nhận minh chứng mới.</bpmn:documentation>
+          <bpmn:incoming>FEA01</bpmn:incoming>
+          <bpmn:outgoing>FEA02</bpmn:outgoing>
+        </bpmn:serviceTask>
+        <bpmn:endEvent id="EA_End" name="Đã gửi cảnh báo">
+          <bpmn:incoming>FEA02</bpmn:incoming>
+        </bpmn:endEvent>
+        <bpmn:sequenceFlow id="FEA01" sourceRef="EA_Start" targetRef="EA_SendAlert"/>
+        <bpmn:sequenceFlow id="FEA02" sourceRef="EA_SendAlert" targetRef="EA_End"/>
+      </bpmn:subProcess>
+      <bpmn:subProcess id="SC_AIReview" name="AI Agent đọc và kiểm tra minh chứng">
+        <bpmn:documentation>Agent đọc dữ liệu và Agent kiểm tra tính minh bạch. Lỗi đọc kỹ thuật phát error event; minh chứng sai là kết quả nghiệp vụ, không phải lỗi.</bpmn:documentation>
+        <bpmn:incoming>FSC13</bpmn:incoming>
+        <bpmn:incoming>FSC25</bpmn:incoming>
+        <bpmn:outgoing>FSC14</bpmn:outgoing>
+        <bpmn:dataObject id="Data_HS" name="Bảng tự chấm + tệp minh chứng"/>
+        <bpmn:dataObjectReference id="DataRef_HS" name="Bảng tự chấm + tệp minh chứng" dataObjectRef="Data_HS"/>
+        <bpmn:dataObject id="Data_Reg" name="Tài liệu hướng dẫn chấm điểm"/>
+        <bpmn:dataObjectReference id="DataRef_Reg" name="Tài liệu hướng dẫn chấm điểm" dataObjectRef="Data_Reg"/>
+        <bpmn:startEvent id="AI_Start" name="Bắt đầu xử lý AI">
+          <bpmn:outgoing>FAI01</bpmn:outgoing>
+        </bpmn:startEvent>
+        <bpmn:serviceTask id="AI_Read" name="Agent đọc dữ liệu: trích xuất điểm và tệp">
+          <bpmn:incoming>FAI01</bpmn:incoming>
+          <bpmn:outgoing>FAI02</bpmn:outgoing>
+          <bpmn:ioSpecification id="IO_AI_Read">
+            <bpmn:dataInput id="DIn_HS" name="Bảng tự chấm + tệp minh chứng"/>
+            <bpmn:inputSet id="InSet_AI_Read"><bpmn:dataInputRefs>DIn_HS</bpmn:dataInputRefs></bpmn:inputSet>
+            <bpmn:outputSet id="OutSet_AI_Read"/>
+          </bpmn:ioSpecification>
+          <bpmn:dataInputAssociation id="DIA_HS_Read"><bpmn:sourceRef>DataRef_HS</bpmn:sourceRef><bpmn:targetRef>DIn_HS</bpmn:targetRef></bpmn:dataInputAssociation>
+        </bpmn:serviceTask>
+        <bpmn:exclusiveGateway id="AI_GReadable" default="FAI05" name="Đọc được dữ liệu?">
+          <bpmn:incoming>FAI02</bpmn:incoming>
+          <bpmn:outgoing>FAI03</bpmn:outgoing>
+          <bpmn:outgoing>FAI05</bpmn:outgoing>
+        </bpmn:exclusiveGateway>
+        <bpmn:serviceTask id="AI_Transparency" name="Agent minh bạch: đối chiếu quy định, trùng lặp, thời hạn">
+          <bpmn:incoming>FAI03</bpmn:incoming>
+          <bpmn:outgoing>FAI04</bpmn:outgoing>
+          <bpmn:ioSpecification id="IO_AI_Transparency">
+            <bpmn:dataInput id="DIn_Reg" name="Tài liệu hướng dẫn chấm điểm"/>
+            <bpmn:inputSet id="InSet_AI_Transparency"><bpmn:dataInputRefs>DIn_Reg</bpmn:dataInputRefs></bpmn:inputSet>
+            <bpmn:outputSet id="OutSet_AI_Transparency"/>
+          </bpmn:ioSpecification>
+          <bpmn:dataInputAssociation id="DIA_Reg_Transparency"><bpmn:sourceRef>DataRef_Reg</bpmn:sourceRef><bpmn:targetRef>DIn_Reg</bpmn:targetRef></bpmn:dataInputAssociation>
+        </bpmn:serviceTask>
+        <bpmn:endEvent id="AI_End" name="Đã phân loại tính hợp lệ">
+          <bpmn:incoming>FAI04</bpmn:incoming>
+        </bpmn:endEvent>
+        <bpmn:endEvent id="AI_ErrorEnd" name="Lỗi đọc không thể tự khôi phục">
+          <bpmn:incoming>FAI05</bpmn:incoming>
+          <bpmn:errorEventDefinition id="EventDef_AI_ErrorEnd" errorRef="Error_AIProcessing"/>
+        </bpmn:endEvent>
+        <bpmn:sequenceFlow id="FAI01" sourceRef="AI_Start" targetRef="AI_Read"/>
+        <bpmn:sequenceFlow id="FAI02" sourceRef="AI_Read" targetRef="AI_GReadable"/>
+        <bpmn:sequenceFlow id="FAI03" name="Đọc được" sourceRef="AI_GReadable" targetRef="AI_Transparency"><bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${readable}</bpmn:conditionExpression></bpmn:sequenceFlow>
+        <bpmn:sequenceFlow id="FAI04" sourceRef="AI_Transparency" targetRef="AI_End"/>
+        <bpmn:sequenceFlow id="FAI05" name="Lỗi kỹ thuật" sourceRef="AI_GReadable" targetRef="AI_ErrorEnd"/>
+      </bpmn:subProcess>
+      <bpmn:boundaryEvent id="SC_AIError" name="Lỗi Agent đọc minh chứng" attachedToRef="SC_AIReview" cancelActivity="true">
+        <bpmn:outgoing>FSC15</bpmn:outgoing>
+        <bpmn:errorEventDefinition id="EventDef_SC_AIError" errorRef="Error_AIProcessing"/>
+      </bpmn:boundaryEvent>
+      <bpmn:userTask id="SC_HumanAIReview" name="BCS kiểm tra thủ công khi Agent lỗi">
+        <bpmn:incoming>FSC15</bpmn:incoming>
+        <bpmn:outgoing>FSC16</bpmn:outgoing>
+        <bpmn:humanPerformer id="HP_SC_HumanAIReview"><bpmn:resourceRef>Res_BCS</bpmn:resourceRef></bpmn:humanPerformer>
+      </bpmn:userTask>
+      <bpmn:exclusiveGateway id="SC_MergeValid" name="Hợp nhất kết quả kiểm tra">
+        <bpmn:incoming>FSC14</bpmn:incoming>
+        <bpmn:incoming>FSC16</bpmn:incoming>
+        <bpmn:outgoing>FSC14b</bpmn:outgoing>
+      </bpmn:exclusiveGateway>
+      <bpmn:exclusiveGateway id="SC_GValid" default="FSC18" name="Minh chứng hợp lệ?">
+        <bpmn:incoming>FSC14b</bpmn:incoming>
+        <bpmn:outgoing>FSC17</bpmn:outgoing>
+        <bpmn:outgoing>FSC18</bpmn:outgoing>
+      </bpmn:exclusiveGateway>
+      <bpmn:serviceTask id="SC_Flag" name="Gắn cờ minh chứng không hợp lệ">
+        <bpmn:documentation>Đặt evidenceFlagged = true và alertPending = true cho các minh chứng thiếu/không hợp lệ và lưu kết quả kiểm tra. alertPending kích hoạt event sub-process cảnh báo.</bpmn:documentation>
+        <bpmn:incoming>FSC18</bpmn:incoming>
+        <bpmn:outgoing>FSC19</bpmn:outgoing>
+      </bpmn:serviceTask>
+      <bpmn:userTask id="SC_BCSFlags" name="BCS xem các minh chứng bị gắn cờ">
+        <bpmn:incoming>FSC19</bpmn:incoming>
+        <bpmn:outgoing>FSC20</bpmn:outgoing>
+        <bpmn:humanPerformer id="HP_SC_BCSFlags"><bpmn:resourceRef>Res_BCS</bpmn:resourceRef></bpmn:humanPerformer>
+      </bpmn:userTask>
+      <bpmn:exclusiveGateway id="SC_GProofNeed" name="Cần bổ sung?" default="FSC22">
+        <bpmn:documentation>v5: chặn vòng lặp bổ sung minh chứng vô hạn. Chỉ yêu cầu bổ sung khi BCS quyết định cần bổ sung VÀ proofRound &lt; maxProofRounds; ngược lại chuyển BCS kết luận mục không hợp lệ.</bpmn:documentation>
+        <bpmn:incoming>FSC20</bpmn:incoming>
+        <bpmn:outgoing>FSC21</bpmn:outgoing>
+        <bpmn:outgoing>FSC22</bpmn:outgoing>
+      </bpmn:exclusiveGateway>
+      <bpmn:sendTask id="SC_RequestProof" name="Agent điều phối: yêu cầu bổ sung minh chứng" messageRef="Msg_ProofRequest">
+        <bpmn:documentation>Mỗi lần gửi: proofRound = proofRound + 1. Mỗi vòng vẫn có hạn riêng supplementPeriod; tổng thời gian tối đa = maxProofRounds × supplementPeriod.</bpmn:documentation>
+        <bpmn:incoming>FSC21</bpmn:incoming>
+        <bpmn:outgoing>FSC23</bpmn:outgoing>
+      </bpmn:sendTask>
+      <bpmn:eventBasedGateway id="SC_WaitProof" name="Chờ minh chứng / quá hạn">
+        <bpmn:incoming>FSC23</bpmn:incoming>
+        <bpmn:outgoing>FSC24</bpmn:outgoing>
+        <bpmn:outgoing>FSC26</bpmn:outgoing>
+      </bpmn:eventBasedGateway>
+      <bpmn:intermediateCatchEvent id="SC_GetProof" name="Nhận minh chứng bổ sung">
+        <bpmn:incoming>FSC24</bpmn:incoming>
+        <bpmn:outgoing>FSC25</bpmn:outgoing>
+        <bpmn:messageEventDefinition id="EventDef_SC_GetProof" messageRef="Msg_ProofUpdate"/>
+      </bpmn:intermediateCatchEvent>
+      <bpmn:intermediateCatchEvent id="SC_ProofTimeout" name="Hết hạn bổ sung minh chứng">
+        <bpmn:documentation>Hạn bổ sung minh chứng (supplementPeriod). Thời hạn là tham số cấu hình (Tobe.docx chưa quy định số ngày cụ thể); nhà trường/BCS khai báo khi triển khai.</bpmn:documentation>
+        <bpmn:incoming>FSC26</bpmn:incoming>
+        <bpmn:outgoing>FSC27</bpmn:outgoing>
+        <bpmn:timerEventDefinition id="EventDef_SC_ProofTimeout"><bpmn:timeDuration xsi:type="bpmn:tFormalExpression">${supplementPeriod}</bpmn:timeDuration></bpmn:timerEventDefinition>
+      </bpmn:intermediateCatchEvent>
+      <bpmn:userTask id="SC_InvalidConclusion" name="BCS xác nhận mục không hợp lệ, lý do trừ điểm">
+        <bpmn:incoming>FSC22</bpmn:incoming>
+        <bpmn:incoming>FSC27</bpmn:incoming>
+        <bpmn:outgoing>FSC28</bpmn:outgoing>
+        <bpmn:humanPerformer id="HP_SC_InvalidConclusion"><bpmn:resourceRef>Res_BCS</bpmn:resourceRef></bpmn:humanPerformer>
+      </bpmn:userTask>
+      <bpmn:exclusiveGateway id="SC_MergeReview" name="Hoàn tất kiểm tra">
+        <bpmn:incoming>FSC17</bpmn:incoming>
+        <bpmn:incoming>FSC28</bpmn:incoming>
+        <bpmn:outgoing>FSC29</bpmn:outgoing>
+      </bpmn:exclusiveGateway>
+      <bpmn:serviceTask id="SC_Decision" name="Agent ra quyết định: áp dụng quy tắc trừ và tính điểm">
+        <bpmn:incoming>FSC29</bpmn:incoming>
+        <bpmn:outgoing>FSC30</bpmn:outgoing>
+      </bpmn:serviceTask>
+      <bpmn:serviceTask id="SC_Draft" name="Ghi điểm dự kiến vào bảng tổng hợp">
+        <bpmn:incoming>FSC30</bpmn:incoming>
+        <bpmn:outgoing>FPST_END</bpmn:outgoing>
+      </bpmn:serviceTask>
+      <bpmn:endEvent id="PST_End" name="Hoàn tất xử lý SV">
+        <bpmn:incoming>FPST_END</bpmn:incoming>
+      </bpmn:endEvent>
+      <bpmn:sequenceFlow id="FPST01" sourceRef="PST_Start" targetRef="SC_WaitSubmission"/>
+      <bpmn:sequenceFlow id="FSC_W1" sourceRef="SC_WaitSubmission" targetRef="SC_GetSubmission"/>
+      <bpmn:sequenceFlow id="FSC_W2" sourceRef="SC_WaitSubmission" targetRef="SC_SubmissionTimeout"/>
+      <bpmn:sequenceFlow id="FSC_W3" sourceRef="SC_SubmissionTimeout" targetRef="SC_RecordNoSubmit"/>
+      <bpmn:sequenceFlow id="FSC_W4" sourceRef="SC_RecordNoSubmit" targetRef="PST_EndNoSubmit"/>
+      <bpmn:sequenceFlow id="FSC03" sourceRef="SC_GetSubmission" targetRef="SC_CheckCompleteness"/>
+      <bpmn:sequenceFlow id="FSC04" sourceRef="SC_CheckCompleteness" targetRef="SC_GComplete"/>
+      <bpmn:sequenceFlow id="FSC05" name="Đầy đủ" sourceRef="SC_GComplete" targetRef="SC_Package"><bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${infoComplete}</bpmn:conditionExpression></bpmn:sequenceFlow>
+      <bpmn:sequenceFlow id="FSC06" name="Thiếu" sourceRef="SC_GComplete" targetRef="SC_MissingNotice"><bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${!infoComplete &amp;&amp; infoRound &lt; maxInfoRounds}</bpmn:conditionExpression></bpmn:sequenceFlow>
+      <bpmn:sequenceFlow id="FSC06b" name="Thiếu, hết lượt" sourceRef="SC_GComplete" targetRef="SC_CloseIncomplete"/>
+      <bpmn:sequenceFlow id="FSC07" sourceRef="SC_MissingNotice" targetRef="SC_WaitInfo"/>
+      <bpmn:sequenceFlow id="FSC08" sourceRef="SC_WaitInfo" targetRef="SC_GetInfo"/>
+      <bpmn:sequenceFlow id="FSC10" sourceRef="SC_WaitInfo" targetRef="SC_InfoTimeout"/>
+      <bpmn:sequenceFlow id="FSC11" sourceRef="SC_InfoTimeout" targetRef="SC_CloseIncomplete"/>
+      <bpmn:sequenceFlow id="FSC12" sourceRef="SC_CloseIncomplete" targetRef="SC_EndIncomplete"/>
+      <bpmn:sequenceFlow id="FSC09" sourceRef="SC_GetInfo" targetRef="SC_CheckCompleteness"/>
+      <bpmn:sequenceFlow id="FSC13" sourceRef="SC_Package" targetRef="SC_AIReview"/>
+      <bpmn:sequenceFlow id="FSC14" sourceRef="SC_AIReview" targetRef="SC_MergeValid"/>
+      <bpmn:sequenceFlow id="FSC15" sourceRef="SC_AIError" targetRef="SC_HumanAIReview"/>
+      <bpmn:sequenceFlow id="FSC16" sourceRef="SC_HumanAIReview" targetRef="SC_MergeValid"/>
+      <bpmn:sequenceFlow id="FSC14b" sourceRef="SC_MergeValid" targetRef="SC_GValid"/>
+      <bpmn:sequenceFlow id="FSC17" name="Hợp lệ" sourceRef="SC_GValid" targetRef="SC_MergeReview"><bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${evidenceValid}</bpmn:conditionExpression></bpmn:sequenceFlow>
+      <bpmn:sequenceFlow id="FSC18" name="Có vấn đề" sourceRef="SC_GValid" targetRef="SC_Flag"/>
+      <bpmn:sequenceFlow id="FSC19" sourceRef="SC_Flag" targetRef="SC_BCSFlags"/>
+      <bpmn:sequenceFlow id="FSC20" sourceRef="SC_BCSFlags" targetRef="SC_GProofNeed"/>
+      <bpmn:sequenceFlow id="FSC21" name="Cần bổ sung" sourceRef="SC_GProofNeed" targetRef="SC_RequestProof"><bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${bcsRequestsProof &amp;&amp; proofRound &lt; maxProofRounds}</bpmn:conditionExpression></bpmn:sequenceFlow>
+      <bpmn:sequenceFlow id="FSC22" name="Không cần / hết lượt" sourceRef="SC_GProofNeed" targetRef="SC_InvalidConclusion"/>
+      <bpmn:sequenceFlow id="FSC23" sourceRef="SC_RequestProof" targetRef="SC_WaitProof"/>
+      <bpmn:sequenceFlow id="FSC24" sourceRef="SC_WaitProof" targetRef="SC_GetProof"/>
+      <bpmn:sequenceFlow id="FSC26" sourceRef="SC_WaitProof" targetRef="SC_ProofTimeout"/>
+      <bpmn:sequenceFlow id="FSC27" sourceRef="SC_ProofTimeout" targetRef="SC_InvalidConclusion"/>
+      <bpmn:sequenceFlow id="FSC25" sourceRef="SC_GetProof" targetRef="SC_AIReview"/>
+      <bpmn:sequenceFlow id="FSC28" sourceRef="SC_InvalidConclusion" targetRef="SC_MergeReview"/>
+      <bpmn:sequenceFlow id="FSC29" sourceRef="SC_MergeReview" targetRef="SC_Decision"/>
+      <bpmn:sequenceFlow id="FSC30" sourceRef="SC_Decision" targetRef="SC_Draft"/>
+      <bpmn:sequenceFlow id="FPST_END" sourceRef="SC_Draft" targetRef="PST_End"/>
+    </bpmn:subProcess>
+    <bpmn:manualTask id="SC_MeetBCS" name="Tổ chức họp ban cán sự lớp">
+      <bpmn:documentation>Trong TO-BE, cuộc họp BCS đặt sau khi các Agent xử lý xong để BCS rà soát kết quả tự động trước khi họp lớp. Nếu AS-IS đặt cuộc họp này ở thời điểm khác thì cần đối chiếu và chỉnh thứ tự.</bpmn:documentation>
+      <bpmn:incoming>FSC31</bpmn:incoming>
+      <bpmn:outgoing>FSC32</bpmn:outgoing>
+    </bpmn:manualTask>
+    <bpmn:userTask id="SC_ReviewDraft" name="BCS rà soát / thống nhất điểm trên hệ thống">
+      <bpmn:incoming>FSC32</bpmn:incoming>
+      <bpmn:outgoing>FSC33</bpmn:outgoing>
+      <bpmn:humanPerformer id="HP_SC_ReviewDraft"><bpmn:resourceRef>Res_BCS</bpmn:resourceRef></bpmn:humanPerformer>
+    </bpmn:userTask>
+    <bpmn:manualTask id="SC_ClassMeeting" name="Tổ chức họp lớp">
+      <bpmn:incoming>FSC33</bpmn:incoming>
+      <bpmn:outgoing>FSC34</bpmn:outgoing>
+    </bpmn:manualTask>
+    <bpmn:userTask id="SC_PublishDraft" name="BCS công bố bảng điểm dự kiến trên hệ thống">
+      <bpmn:incoming>FSC34</bpmn:incoming>
+      <bpmn:outgoing>FSC35</bpmn:outgoing>
+      <bpmn:humanPerformer id="HP_SC_PublishDraft"><bpmn:resourceRef>Res_BCS</bpmn:resourceRef></bpmn:humanPerformer>
+    </bpmn:userTask>
+    <bpmn:subProcess id="SC_RespPerStudent" name="Phản hồi điểm và giải quyết khiếu nại từng sinh viên (multi-instance)">
+      <bpmn:documentation>Multi-instance song song cho từng sinh viên có điểm dự kiến: gửi điểm, chờ đồng ý / khiếu nại / hết hạn, xử lý khiếu nại. Mỗi sinh viên có một gateway chờ riêng nên phản hồi của người này không làm kết thúc việc chờ của người khác. Chỉ khi mọi instance hoàn tất mới chốt điểm và gửi GVCN.</bpmn:documentation>
+      <bpmn:incoming>FSC35</bpmn:incoming>
+      <bpmn:outgoing>FSC49</bpmn:outgoing>
+      <bpmn:ioSpecification id="IO_RespPerStudent">
+        <bpmn:dataInput id="DIn_ScoredList" name="Danh sách sinh viên đã có điểm dự kiến" isCollection="true"/>
+        <bpmn:inputSet id="InSet_RespPerStudent"><bpmn:dataInputRefs>DIn_ScoredList</bpmn:dataInputRefs></bpmn:inputSet>
+        <bpmn:outputSet id="OutSet_RespPerStudent"/>
+      </bpmn:ioSpecification>
+      <bpmn:multiInstanceLoopCharacteristics id="MI_RespPerStudent" isSequential="false">
+        <bpmn:loopDataInputRef>DIn_ScoredList</bpmn:loopDataInputRef>
+        <bpmn:inputDataItem id="Item_ScoredStudent" name="Sinh viên"/>
+      </bpmn:multiInstanceLoopCharacteristics>
+      <bpmn:startEvent id="P2_Start" name="Bắt đầu theo từng SV">
+        <bpmn:outgoing>FP2_01</bpmn:outgoing>
+      </bpmn:startEvent>
+      <bpmn:sendTask id="SC_NotifyDraft" name="Gửi điểm dự kiến cho sinh viên" messageRef="Msg_Draft">
+        <bpmn:incoming>FP2_01</bpmn:incoming>
+        <bpmn:outgoing>FSC36</bpmn:outgoing>
+      </bpmn:sendTask>
+      <bpmn:eventBasedGateway id="SC_WaitAppeal" name="Chờ đồng ý / khiếu nại / hết hạn">
+        <bpmn:incoming>FSC36</bpmn:incoming>
+        <bpmn:outgoing>FSC37</bpmn:outgoing>
+        <bpmn:outgoing>FSC38</bpmn:outgoing>
+        <bpmn:outgoing>FSC39</bpmn:outgoing>
+      </bpmn:eventBasedGateway>
+      <bpmn:intermediateCatchEvent id="SC_GetAccept" name="Nhận xác nhận đồng ý">
+        <bpmn:documentation>Khi nhận: đặt responded = true (để SC_RemindEventSub không nhắc nhầm).</bpmn:documentation>
+        <bpmn:incoming>FSC37</bpmn:incoming>
+        <bpmn:outgoing>FSC37b</bpmn:outgoing>
+        <bpmn:messageEventDefinition id="EventDef_SC_GetAccept" messageRef="Msg_Accept"/>
+      </bpmn:intermediateCatchEvent>
+      <bpmn:endEvent id="P2_EndAccept" name="SV đồng ý điểm">
+        <bpmn:incoming>FSC37b</bpmn:incoming>
+      </bpmn:endEvent>
+      <bpmn:intermediateCatchEvent id="SC_GetAppeal" name="Nhận khiếu nại điểm">
+        <bpmn:documentation>Khi nhận: đặt responded = true (để SC_RemindEventSub không nhắc sinh viên đã nộp khiếu nại trong lúc BCS đang xử lý).</bpmn:documentation>
+        <bpmn:incoming>FSC38</bpmn:incoming>
+        <bpmn:outgoing>FSC42</bpmn:outgoing>
+        <bpmn:messageEventDefinition id="EventDef_SC_GetAppeal" messageRef="Msg_Appeal"/>
+      </bpmn:intermediateCatchEvent>
+      <bpmn:intermediateCatchEvent id="SC_AppealTimeout" name="Hết hạn khiếu nại">
+        <bpmn:documentation>Hạn đồng ý / khiếu nại điểm dự kiến (appealPeriod). Thời hạn là tham số cấu hình (Tobe.docx chưa quy định số ngày cụ thể); nhà trường/BCS khai báo khi triển khai.</bpmn:documentation>
+        <bpmn:incoming>FSC39</bpmn:incoming>
+        <bpmn:outgoing>FSC39b</bpmn:outgoing>
+        <bpmn:timerEventDefinition id="EventDef_SC_AppealTimeout"><bpmn:timeDuration xsi:type="bpmn:tFormalExpression">${appealPeriod}</bpmn:timeDuration></bpmn:timerEventDefinition>
+      </bpmn:intermediateCatchEvent>
+      <bpmn:sendTask id="SC_AutoAccept" name="Ghi nhận tự động chấp nhận điểm và thông báo cho SV" messageRef="Msg_AutoAccepted">
+        <bpmn:documentation>v5: đổi từ serviceTask sang sendTask. Nhà trường giữ đồng hồ chuẩn nên phải báo cho sinh viên (MF15) để đóng phiên phía sinh viên, tránh trường hợp sinh viên đang soạn giải trình rồi bị treo ở ST_GetResolution.</bpmn:documentation>
+        <bpmn:incoming>FSC39b</bpmn:incoming>
+        <bpmn:outgoing>FSC39c</bpmn:outgoing>
+      </bpmn:sendTask>
+      <bpmn:endEvent id="P2_EndAuto" name="Điểm được chấp nhận tự động">
+        <bpmn:incoming>FSC39c</bpmn:incoming>
+      </bpmn:endEvent>
+      <bpmn:userTask id="SC_HandleAppeal" name="BCS xem xét và giải trình khiếu nại">
+        <bpmn:incoming>FSC42</bpmn:incoming>
+        <bpmn:outgoing>FSC43</bpmn:outgoing>
+        <bpmn:humanPerformer id="HP_SC_HandleAppeal"><bpmn:resourceRef>Res_BCS</bpmn:resourceRef></bpmn:humanPerformer>
+      </bpmn:userTask>
+      <bpmn:exclusiveGateway id="SC_GAdjust" default="FSC45" name="Cần điều chỉnh?">
+        <bpmn:incoming>FSC43</bpmn:incoming>
+        <bpmn:outgoing>FSC44</bpmn:outgoing>
+        <bpmn:outgoing>FSC45</bpmn:outgoing>
+      </bpmn:exclusiveGateway>
+      <bpmn:userTask id="SC_Edit" name="BCS điều chỉnh điểm và ghi rõ lý do">
+        <bpmn:incoming>FSC44</bpmn:incoming>
+        <bpmn:outgoing>FSC46</bpmn:outgoing>
+        <bpmn:humanPerformer id="HP_SC_Edit"><bpmn:resourceRef>Res_BCS</bpmn:resourceRef></bpmn:humanPerformer>
+      </bpmn:userTask>
+      <bpmn:serviceTask id="SC_UpdateScore" name="Hệ thống cập nhật lại điểm">
+        <bpmn:incoming>FSC46</bpmn:incoming>
+        <bpmn:outgoing>FSC47</bpmn:outgoing>
+      </bpmn:serviceTask>
+      <bpmn:sendTask id="SC_ReplyAppeal" name="Thông báo kết quả giải trình cho sinh viên" messageRef="Msg_Resolution">
+        <bpmn:incoming>FSC45</bpmn:incoming>
+        <bpmn:incoming>FSC47</bpmn:incoming>
+        <bpmn:outgoing>FSC48</bpmn:outgoing>
+      </bpmn:sendTask>
+      <bpmn:endEvent id="P2_EndReply" name="Đã giải quyết khiếu nại">
+        <bpmn:incoming>FSC48</bpmn:incoming>
+      </bpmn:endEvent>
+      <bpmn:subProcess id="SC_RemindEventSub" name="Event sub-process: nhắc nhở hạn phản hồi" triggeredByEvent="true">
+        <bpmn:documentation>Nhắc nhở không ngắt luồng chính: khi gần hết hạn phản hồi thì gửi nhắc nhở cho đúng sinh viên đó. v6: có cổng kiểm tra responded (đặt true khi nhận SC_GetAccept hoặc SC_GetAppeal) để không nhắc sinh viên đã đồng ý/khiếu nại nhưng đang chờ BCS xử lý, lúc này instance SC_RespPerStudent vẫn còn hoạt động nên timer vẫn nổ.</bpmn:documentation>
+        <bpmn:startEvent id="SC_Remind_Start" name="Gần hết hạn phản hồi" isInterrupting="false">
+          <bpmn:documentation>Timer start không ngắt trong event sub-process, tính từ lúc gửi điểm cho từng sinh viên (reminderAfter). Thời hạn là tham số cấu hình (Tobe.docx chưa quy định số ngày cụ thể); nhà trường/BCS khai báo khi triển khai.</bpmn:documentation>
+          <bpmn:outgoing>FES_S1</bpmn:outgoing>
+          <bpmn:timerEventDefinition id="EventDef_SC_Remind_Start"><bpmn:timeDuration xsi:type="bpmn:tFormalExpression">${reminderAfter}</bpmn:timeDuration></bpmn:timerEventDefinition>
+        </bpmn:startEvent>
+        <bpmn:exclusiveGateway id="SC_GResponded" name="Đã phản hồi chưa?" default="FES_S4">
+          <bpmn:incoming>FES_S1</bpmn:incoming>
+          <bpmn:outgoing>FES_S3</bpmn:outgoing>
+          <bpmn:outgoing>FES_S4</bpmn:outgoing>
+        </bpmn:exclusiveGateway>
+        <bpmn:sendTask id="SC_SendReminder" name="Gửi nhắc nhở hạn phản hồi cho sinh viên" messageRef="Msg_Reminder">
+          <bpmn:incoming>FES_S3</bpmn:incoming>
+          <bpmn:outgoing>FES_S2</bpmn:outgoing>
+        </bpmn:sendTask>
+        <bpmn:endEvent id="SC_Remind_End" name="Đã gửi nhắc nhở">
+          <bpmn:incoming>FES_S2</bpmn:incoming>
+        </bpmn:endEvent>
+        <bpmn:endEvent id="SC_Remind_Skip" name="Đã phản hồi – bỏ qua nhắc">
+          <bpmn:incoming>FES_S4</bpmn:incoming>
+        </bpmn:endEvent>
+        <bpmn:sequenceFlow id="FES_S1" sourceRef="SC_Remind_Start" targetRef="SC_GResponded"/>
+        <bpmn:sequenceFlow id="FES_S3" name="Chưa" sourceRef="SC_GResponded" targetRef="SC_SendReminder"><bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${!responded}</bpmn:conditionExpression></bpmn:sequenceFlow>
+        <bpmn:sequenceFlow id="FES_S4" name="Đã" sourceRef="SC_GResponded" targetRef="SC_Remind_Skip"/>
+        <bpmn:sequenceFlow id="FES_S2" sourceRef="SC_SendReminder" targetRef="SC_Remind_End"/>
+      </bpmn:subProcess>
+      <bpmn:sequenceFlow id="FP2_01" sourceRef="P2_Start" targetRef="SC_NotifyDraft"/>
+      <bpmn:sequenceFlow id="FSC36" sourceRef="SC_NotifyDraft" targetRef="SC_WaitAppeal"/>
+      <bpmn:sequenceFlow id="FSC37" sourceRef="SC_WaitAppeal" targetRef="SC_GetAccept"/>
+      <bpmn:sequenceFlow id="FSC37b" sourceRef="SC_GetAccept" targetRef="P2_EndAccept"/>
+      <bpmn:sequenceFlow id="FSC38" sourceRef="SC_WaitAppeal" targetRef="SC_GetAppeal"/>
+      <bpmn:sequenceFlow id="FSC39" sourceRef="SC_WaitAppeal" targetRef="SC_AppealTimeout"/>
+      <bpmn:sequenceFlow id="FSC39b" sourceRef="SC_AppealTimeout" targetRef="SC_AutoAccept"/>
+      <bpmn:sequenceFlow id="FSC39c" sourceRef="SC_AutoAccept" targetRef="P2_EndAuto"/>
+      <bpmn:sequenceFlow id="FSC42" sourceRef="SC_GetAppeal" targetRef="SC_HandleAppeal"/>
+      <bpmn:sequenceFlow id="FSC43" sourceRef="SC_HandleAppeal" targetRef="SC_GAdjust"/>
+      <bpmn:sequenceFlow id="FSC44" name="Điều chỉnh" sourceRef="SC_GAdjust" targetRef="SC_Edit"><bpmn:conditionExpression xsi:type="bpmn:tFormalExpression">${needAdjust}</bpmn:conditionExpression></bpmn:sequenceFlow>
+      <bpmn:sequenceFlow id="FSC45" name="Không điều chỉnh" sourceRef="SC_GAdjust" targetRef="SC_ReplyAppeal"/>
+      <bpmn:sequenceFlow id="FSC46" sourceRef="SC_Edit" targetRef="SC_UpdateScore"/>
+      <bpmn:sequenceFlow id="FSC47" sourceRef="SC_UpdateScore" targetRef="SC_ReplyAppeal"/>
+      <bpmn:sequenceFlow id="FSC48" sourceRef="SC_ReplyAppeal" targetRef="P2_EndReply"/>
+    </bpmn:subProcess>
+    <bpmn:userTask id="SC_Finalize" name="BCS chốt điểm trên hệ thống">
+      <bpmn:incoming>FSC49</bpmn:incoming>
+      <bpmn:outgoing>FSC50</bpmn:outgoing>
+      <bpmn:humanPerformer id="HP_SC_Finalize"><bpmn:resourceRef>Res_BCS</bpmn:resourceRef></bpmn:humanPerformer>
+    </bpmn:userTask>
+    <bpmn:userTask id="SC_SendFinal" name="BCS gửi bảng điểm đã chốt cho giáo viên chủ nhiệm">
+      <bpmn:incoming>FSC50</bpmn:incoming>
+      <bpmn:outgoing>FSC51</bpmn:outgoing>
+      <bpmn:humanPerformer id="HP_SC_SendFinal"><bpmn:resourceRef>Res_BCS</bpmn:resourceRef></bpmn:humanPerformer>
+    </bpmn:userTask>
+    <bpmn:endEvent id="SC_End" name="Hoàn tất chuyển bảng điểm">
+      <bpmn:incoming>FSC51</bpmn:incoming>
+    </bpmn:endEvent>
+    <bpmn:sequenceFlow id="FSC01" sourceRef="SC_Start" targetRef="SC_Notify"/>
+    <bpmn:sequenceFlow id="FSC02" sourceRef="SC_Notify" targetRef="SC_PerStudent"/>
+    <bpmn:sequenceFlow id="FSC31" sourceRef="SC_PerStudent" targetRef="SC_MeetBCS"/>
+    <bpmn:sequenceFlow id="FSC32" sourceRef="SC_MeetBCS" targetRef="SC_ReviewDraft"/>
+    <bpmn:sequenceFlow id="FSC33" sourceRef="SC_ReviewDraft" targetRef="SC_ClassMeeting"/>
+    <bpmn:sequenceFlow id="FSC34" sourceRef="SC_ClassMeeting" targetRef="SC_PublishDraft"/>
+    <bpmn:sequenceFlow id="FSC35" sourceRef="SC_PublishDraft" targetRef="SC_RespPerStudent"/>
+    <bpmn:sequenceFlow id="FSC49" sourceRef="SC_RespPerStudent" targetRef="SC_Finalize"/>
+    <bpmn:sequenceFlow id="FSC50" sourceRef="SC_Finalize" targetRef="SC_SendFinal"/>
+    <bpmn:sequenceFlow id="FSC51" sourceRef="SC_SendFinal" targetRef="SC_End"/>
+    <bpmn:textAnnotation id="Note_BCS"><bpmn:text>Ghi chú: task màu cam do Ban cán sự lớp thực hiện. BPMN 2.0 không cho vẽ lane bên trong sub-process, nên vai trò BCS được thể hiện bằng màu, tiền tố "BCS" và thuộc tính humanPerformer (Res_BCS).</bpmn:text></bpmn:textAnnotation>
+  </bpmn:process>
+  <bpmndi:BPMNDiagram id="Diagram_Nhom8_Advanced">
+    <bpmndi:BPMNPlane id="Plane_Nhom8_Advanced" bpmnElement="Collaboration_ToBe_Advanced">
+      <bpmndi:BPMNShape id="Shape_Pool_Student" bpmnElement="Pool_Student" isHorizontal="true" bioc:stroke="#536279" bioc:fill="#FFFFFF">
+        <dc:Bounds x="100" y="60" width="8000" height="480"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Pool_School" bpmnElement="Pool_School" isHorizontal="true" bioc:stroke="#536279" bioc:fill="#FFFFFF">
+        <dc:Bounds x="100" y="580" width="8000" height="1250"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Pool_GVCN" bpmnElement="Pool_GVCN" isHorizontal="true" bioc:stroke="#536279" bioc:fill="#FFFFFF">
+        <dc:Bounds x="100" y="1870" width="8000" height="100"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Lane_System" bpmnElement="Lane_System" isHorizontal="true" bioc:stroke="#8293A7" bioc:fill="#F4F8FC">
+        <dc:Bounds x="130" y="580" width="7970" height="1040"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Lane_BCS" bpmnElement="Lane_BCS" isHorizontal="true" bioc:stroke="#8293A7" bioc:fill="#FBF8F0">
+        <dc:Bounds x="130" y="1620" width="7970" height="210"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ES_Info" bpmnElement="ES_Info" isExpanded="true" bioc:stroke="#B98B2F" bioc:fill="#FFFDF5">
+        <dc:Bounds x="1410" y="340" width="620" height="160"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ES_Proof" bpmnElement="ES_Proof" isExpanded="true" bioc:stroke="#B98B2F" bioc:fill="#FFFDF5">
+        <dc:Bounds x="2970" y="340" width="700" height="160"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ES_Remind" bpmnElement="ES_Remind" isExpanded="true" bioc:stroke="#B98B2F" bioc:fill="#FFFDF5">
+        <dc:Bounds x="5510" y="340" width="300" height="160"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ES_Closed" bpmnElement="ES_Closed" isExpanded="true" bioc:stroke="#B98B2F" bioc:fill="#FFFDF5">
+        <dc:Bounds x="1010" y="340" width="380" height="160"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ES_AutoAccept" bpmnElement="ES_AutoAccept" isExpanded="true" bioc:stroke="#B98B2F" bioc:fill="#FFFDF5">
+        <dc:Bounds x="5920" y="340" width="330" height="160"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ES_Closed_Start" bpmnElement="ES_Closed_Start" bioc:stroke="#288A4B" bioc:fill="#EAF9ED">
+        <dc:Bounds x="1030" y="402" width="36" height="36"/>
+        <bpmndi:BPMNLabel><dc:Bounds x="1012" y="364" width="100" height="34"/></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ES_Closed_End" bpmnElement="ES_Closed_End" bioc:stroke="#A33F46" bioc:fill="#FFF0EF">
+        <dc:Bounds x="1280" y="402" width="36" height="36"/>
+        <bpmndi:BPMNLabel><dc:Bounds x="1243" y="442" width="110" height="30"/></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ES_AutoAccept_Start" bpmnElement="ES_AutoAccept_Start" bioc:stroke="#288A4B" bioc:fill="#EAF9ED">
+        <dc:Bounds x="5982" y="402" width="36" height="36"/>
+        <bpmndi:BPMNLabel><dc:Bounds x="5928" y="364" width="140" height="34"/></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ES_AutoAccept_End" bpmnElement="ES_AutoAccept_End" bioc:stroke="#A33F46" bioc:fill="#FFF0EF">
+        <dc:Bounds x="6150" y="402" width="36" height="36"/>
+        <bpmndi:BPMNLabel><dc:Bounds x="6103" y="442" width="130" height="44"/></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_SC_PerStudent" bpmnElement="SC_PerStudent" isExpanded="true" bioc:stroke="#3B5998" bioc:fill="#FAFCFF">
+        <dc:Bounds x="760" y="600" width="3450" height="980"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_SC_AlertEventSub" bpmnElement="SC_AlertEventSub" isExpanded="true" bioc:stroke="#B98B2F" bioc:fill="#FFFDF5">
+        <dc:Bounds x="2420" y="670" width="480" height="150"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_SC_AIReview" bpmnElement="SC_AIReview" isExpanded="true" bioc:stroke="#3B5998" bioc:fill="#FAFCFF">
+        <dc:Bounds x="1610" y="930" width="700" height="270"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_SC_RespPerStudent" bpmnElement="SC_RespPerStudent" isExpanded="true" bioc:stroke="#3B5998" bioc:fill="#FAFCFF">
+        <dc:Bounds x="5240" y="1060" width="2130" height="530"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_SC_RemindEventSub" bpmnElement="SC_RemindEventSub" isExpanded="true" bioc:stroke="#B98B2F" bioc:fill="#FFFDF5">
+        <dc:Bounds x="5340" y="1400" width="450" height="180"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_Start" bpmnElement="ST_Start" bioc:stroke="#288A4B" bioc:fill="#EAF9ED">
+        <dc:Bounds x="362" y="122" width="36" height="36"/>
+        <bpmndi:BPMNLabel><dc:Bounds x="325" y="88" width="110" height="30"/></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_Login" bpmnElement="ST_Login" bioc:stroke="#4265B1" bioc:fill="#EEF3FF">
+        <dc:Bounds x="438" y="105" width="150" height="70"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_Self" bpmnElement="ST_Self" bioc:stroke="#4265B1" bioc:fill="#EEF3FF">
+        <dc:Bounds x="628" y="105" width="160" height="70"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_Submit" bpmnElement="ST_Submit" bioc:stroke="#4265B1" bioc:fill="#EEF3FF">
+        <dc:Bounds x="905" y="105" width="190" height="70"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_GetDraft" bpmnElement="ST_GetDraft" bioc:stroke="#557897" bioc:fill="#FFFFFF">
+        <dc:Bounds x="5425" y="122" width="36" height="36"/>
+        <bpmndi:BPMNLabel><dc:Bounds x="5388" y="102" width="110" height="16"/></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_View" bpmnElement="ST_View" bioc:stroke="#4265B1" bioc:fill="#EEF3FF">
+        <dc:Bounds x="5511" y="105" width="160" height="70"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_ViewTimeout" bpmnElement="ST_ViewTimeout" bioc:stroke="#B96E2F" bioc:fill="#FFF6EB">
+        <dc:Bounds x="5573" y="157" width="36" height="36"/>
+        <bpmndi:BPMNLabel><dc:Bounds x="5601" y="197" width="100" height="16"/></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_EndSilent" bpmnElement="ST_EndSilent" bioc:stroke="#A33F46" bioc:fill="#FFF0EF">
+        <dc:Bounds x="5573" y="272" width="36" height="36"/>
+        <bpmndi:BPMNLabel><dc:Bounds x="5613" y="268" width="100" height="44"/></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_GAppeal" bpmnElement="ST_GAppeal" bioc:stroke="#4D6181" bioc:fill="#FFFFFF">
+        <dc:Bounds x="5721" y="115" width="50" height="50"/>
+        <bpmndi:BPMNLabel><dc:Bounds x="5696" y="95" width="100" height="16"/></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_SendAppeal" bpmnElement="ST_SendAppeal" bioc:stroke="#4265B1" bioc:fill="#EEF3FF">
+        <dc:Bounds x="6170" y="105" width="200" height="70"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_GetResolution" bpmnElement="ST_GetResolution" bioc:stroke="#557897" bioc:fill="#FFFFFF">
+        <dc:Bounds x="7102" y="122" width="36" height="36"/>
+        <bpmndi:BPMNLabel><dc:Bounds x="7065" y="88" width="110" height="30"/></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_EndAppeal" bpmnElement="ST_EndAppeal" bioc:stroke="#A33F46" bioc:fill="#FFF0EF">
+        <dc:Bounds x="7242" y="122" width="36" height="36"/>
+        <bpmndi:BPMNLabel><dc:Bounds x="7205" y="162" width="110" height="30"/></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_SendAccept" bpmnElement="ST_SendAccept" bioc:stroke="#4265B1" bioc:fill="#EEF3FF">
+        <dc:Bounds x="5805" y="225" width="190" height="70"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_EndAccept" bpmnElement="ST_EndAccept" bioc:stroke="#A33F46" bioc:fill="#FFF0EF">
+        <dc:Bounds x="6042" y="242" width="36" height="36"/>
+        <bpmndi:BPMNLabel><dc:Bounds x="6015" y="282" width="90" height="30"/></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ES_Info_Start" bpmnElement="ES_Info_Start" bioc:stroke="#288A4B" bioc:fill="#EAF9ED">
+        <dc:Bounds x="1457" y="402" width="36" height="36"/>
+        <bpmndi:BPMNLabel><dc:Bounds x="1425" y="368" width="100" height="30"/></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_SendInfo" bpmnElement="ST_SendInfo" bioc:stroke="#4265B1" bioc:fill="#EEF3FF">
+        <dc:Bounds x="1685" y="385" width="190" height="70"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ES_Info_End" bpmnElement="ES_Info_End" bioc:stroke="#A33F46" bioc:fill="#FFF0EF">
+        <dc:Bounds x="1952" y="402" width="36" height="36"/>
+        <bpmndi:BPMNLabel><dc:Bounds x="1925" y="442" width="90" height="16"/></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ES_Proof_Start" bpmnElement="ES_Proof_Start" bioc:stroke="#288A4B" bioc:fill="#EAF9ED">
+        <dc:Bounds x="3062" y="402" width="36" height="36"/>
+        <bpmndi:BPMNLabel><dc:Bounds x="3025" y="368" width="110" height="30"/></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ST_SendProof" bpmnElement="ST_SendProof" bioc:stroke="#4265B1" bioc:fill="#EEF3FF">
+        <dc:Bounds x="3340" y="385" width="210" height="70"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ES_Proof_End" bpmnElement="ES_Proof_End" bioc:stroke="#A33F46" bioc:fill="#FFF0EF">
+        <dc:Bounds x="3607" y="402" width="36" height="36"/>
+        <bpmndi:BPMNLabel><dc:Bounds x="3575" y="442" width="100" height="30"/></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ES_Remind_Start" bpmnElement="ES_Remind_Start" bioc:stroke="#288A4B" bioc:fill="#EAF9ED">
+        <dc:Bounds x="5572" y="402" width="36" height="36"/>
+        <bpmndi:BPMNLabel><dc:Bounds x="5545" y="382" width="90" height="16"/></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_ES_Remind_End" bpmnElement="ES_Remind_End" bioc:stroke="#A33F46" bioc:fill="#FFF0EF">
+        <dc:Bounds x="5692" y="402" width="36" height="36"/>
+        <bpmndi:BPMNLabel><dc:Bounds x="5665" y="442" width="90" height="30"/></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_SC_Start" bpmnElement="SC_Start" bioc:stroke="#288A4B" bioc:fill="#EAF9ED">
+        <dc:Bounds x="202" y="682" width="36" height="36"/>
+        <bpmndi:BPMNLabel><dc:Bounds x="170" y="722" width="100" height="30"/></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_SC_Notify" bpmnElement="SC_Notify" bioc:stroke="#1E7F8C" bioc:fill="#E3F4F4">
+        <dc:Bounds x="305" y="660" width="150" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_PST_Start" bpmnElement="PST_Start" bioc:stroke="#288A4B" bioc:fill="#EAF9ED">
+        <dc:Bounds x="812" y="1047" width="36" height="36"/>
+        <bpmndi:BPMNLabel><dc:Bounds x="795" y="1013" width="70" height="30"/></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_SC_WaitSubmission" bpmnElement="SC_WaitSubmission" bioc:stroke="#8A51A1" bioc:fill="#FCF5FF">
+        <dc:Bounds x="885" y="1040" width="50" height="50"/>
+        <bpmndi:BPMNLabel><dc:Bounds x="865" y="1006" width="90" height="30"/></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_SC_GetSubmission" bpmnElement="SC_GetSubmission" bioc:stroke="#557897" bioc:fill="#FFFFFF">
+        <dc:Bounds x="982" y="1047" width="36" height="36"/>
+        <bpmndi:BPMNLabel><dc:Bounds x="960" y="1087" width="80" height="30"/></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_SC_SubmissionTimeout" bpmnElement="SC_SubmissionTimeout" bioc:stroke="#557897" bioc:fill="#FFFFFF">
+        <dc:Bounds x="892" y="1172" width="36" height="36"/>
+        <bpmndi:BPMNLabel><dc:Bounds x="860" y="1212" width="100" height="30"/></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_SC_RecordNoSubmit" bpmnElement="SC_RecordNoSubmit" bioc:stroke="#1E7F8C" bioc:fill="#E3F4F4">
+        <dc:Bounds x="990" y="1150" width="190" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_PST_EndNoSubmit" bpmnElement="PST_EndNoSubmit" bioc:stroke="#A33F46" bioc:fill="#FFF0EF">
+        <dc:Bounds x="1232" y="1172" width="36" height="36"/>
+        <bpmndi:BPMNLabel><dc:Bounds x="1200" y="1212" width="100" height="30"/></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_SC_CheckCompleteness" bpmnElement="SC_CheckCompleteness" bioc:stroke="#15826A" bioc:fill="#DEF7F0">
+        <dc:Bounds x="1065" y="1025" width="180" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_SC_GComplete" bpmnElement="SC_GComplete" bioc:stroke="#4D6181" bioc:fill="#FFFFFF">
+        <dc:Bounds x="1290" y="1040" width="50" height="50"/>
+        <bpmndi:BPMNLabel><dc:Bounds x="1270" y="1094" width="90" height="16"/></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_SC_Package" bpmnElement="SC_Package" bioc:stroke="#15826A" bioc:fill="#DEF7F0">
+        <dc:Bounds x="1415" y="1025" width="160" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_SC_MissingNotice" bpmnElement="SC_MissingNotice" bioc:stroke="#1E7F8C" bioc:fill="#E3F4F4">
+        <dc:Bounds x="1400" y="750" width="150" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_SC_WaitInfo" bpmnElement="SC_WaitInfo" bioc:stroke="#8A51A1" bioc:fill="#FCF5FF">
+        <dc:Bounds x="1595" y="765" width="50" height="50"/>
+        <bpmndi:BPMNLabel><dc:Bounds x="1570" y="819" width="100" height="30"/></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_SC_GetInfo" bpmnElement="SC_GetInfo" bioc:stroke="#557897" bioc:fill="#FFFFFF">
+        <dc:Bounds x="1762" y="662" width="36" height="36"/>
+        <bpmndi:BPMNLabel><dc:Bounds x="1802" y="665" width="100" height="30"/></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_SC_InfoTimeout" bpmnElement="SC_InfoTimeout" bioc:stroke="#557897" bioc:fill="#FFFFFF">
+        <dc:Bounds x="1852" y="772" width="36" height="36"/>
+        <bpmndi:BPMNLabel><dc:Bounds x="1815" y="738" width="110" height="30"/></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_SC_CloseIncomplete" bpmnElement="SC_CloseIncomplete" bioc:stroke="#1E7F8C" bioc:fill="#E3F4F4">
+        <dc:Bounds x="2035" y="750" width="190" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_SC_EndIncomplete" bpmnElement="SC_EndIncomplete" bioc:stroke="#A33F46" bioc:fill="#FFF0EF">
+        <dc:Bounds x="2282" y="772" width="36" height="36"/>
+        <bpmndi:BPMNLabel><dc:Bounds x="2245" y="812" width="110" height="30"/></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_EA_Start" bpmnElement="EA_Start" bioc:stroke="#288A4B" bioc:fill="#EAF9ED">
+        <dc:Bounds x="2462" y="737" width="36" height="36"/>
+        <bpmndi:BPMNLabel><dc:Bounds x="2435" y="777" width="90" height="30"/></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_EA_SendAlert" bpmnElement="EA_SendAlert" bioc:stroke="#15826A" bioc:fill="#DEF7F0">
+        <dc:Bounds x="2560" y="715" width="200" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_EA_End" bpmnElement="EA_End" bioc:stroke="#A33F46" bioc:fill="#FFF0EF">
+        <dc:Bounds x="2812" y="737" width="36" height="36"/>
+        <bpmndi:BPMNLabel><dc:Bounds x="2785" y="777" width="90" height="30"/></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_AI_Start" bpmnElement="AI_Start" bioc:stroke="#288A4B" bioc:fill="#EAF9ED">
+        <dc:Bounds x="1642" y="1002" width="36" height="36"/>
+        <bpmndi:BPMNLabel><dc:Bounds x="1625" y="1042" width="70" height="30"/></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_AI_Read" bpmnElement="AI_Read" bioc:stroke="#15826A" bioc:fill="#DEF7F0">
+        <dc:Bounds x="1715" y="980" width="150" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_AI_GReadable" bpmnElement="AI_GReadable" bioc:stroke="#4D6181" bioc:fill="#FFFFFF">
+        <dc:Bounds x="1900" y="995" width="50" height="50"/>
+        <bpmndi:BPMNLabel><dc:Bounds x="1880" y="961" width="90" height="30"/></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_AI_Transparency" bpmnElement="AI_Transparency" bioc:stroke="#15826A" bioc:fill="#DEF7F0">
+        <dc:Bounds x="2015" y="975" width="190" height="90"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_AI_End" bpmnElement="AI_End" bioc:stroke="#A33F46" bioc:fill="#FFF0EF">
+        <dc:Bounds x="2242" y="1002" width="36" height="36"/>
+        <bpmndi:BPMNLabel><dc:Bounds x="2220" y="1042" width="80" height="30"/></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_AI_ErrorEnd" bpmnElement="AI_ErrorEnd" bioc:stroke="#A33F46" bioc:fill="#FFF0EF">
+        <dc:Bounds x="1907" y="1107" width="36" height="36"/>
+        <bpmndi:BPMNLabel><dc:Bounds x="1947" y="1103" width="80" height="44"/></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_DataRef_HS" bpmnElement="DataRef_HS" bioc:stroke="#6F7F90" bioc:fill="#FFFFF1">
+        <dc:Bounds x="1772" y="1110" width="36" height="50"/>
+        <bpmndi:BPMNLabel><dc:Bounds x="1730" y="1164" width="120" height="30"/></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_DataRef_Reg" bpmnElement="DataRef_Reg" bioc:stroke="#6F7F90" bioc:fill="#FFFFF1">
+        <dc:Bounds x="2092" y="1110" width="36" height="50"/>
+        <bpmndi:BPMNLabel><dc:Bounds x="2050" y="1164" width="120" height="30"/></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_SC_AIError" bpmnElement="SC_AIError" bioc:stroke="#B96E2F" bioc:fill="#FFF6EB">
+        <dc:Bounds x="2212" y="1182" width="36" height="36"/>
+        <bpmndi:BPMNLabel><dc:Bounds x="2130" y="1222" width="92" height="30"/></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_SC_HumanAIReview" bpmnElement="SC_HumanAIReview" bioc:stroke="#C2701A" bioc:fill="#FFE9CC">
+        <dc:Bounds x="2145" y="1270" width="170" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_SC_MergeValid" bpmnElement="SC_MergeValid" bioc:stroke="#4D6181" bioc:fill="#FFFFFF">
+        <dc:Bounds x="2335" y="1040" width="50" height="50"/>
+        <bpmndi:BPMNLabel><dc:Bounds x="2310" y="1006" width="100" height="30"/></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_SC_GValid" bpmnElement="SC_GValid" bioc:stroke="#4D6181" bioc:fill="#FFFFFF">
+        <dc:Bounds x="2475" y="1040" width="50" height="50"/>
+        <bpmndi:BPMNLabel><dc:Bounds x="2450" y="1006" width="100" height="30"/></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_SC_Flag" bpmnElement="SC_Flag" bioc:stroke="#15826A" bioc:fill="#DEF7F0">
+        <dc:Bounds x="2415" y="1270" width="170" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_SC_BCSFlags" bpmnElement="SC_BCSFlags" bioc:stroke="#C2701A" bioc:fill="#FFE9CC">
+        <dc:Bounds x="2615" y="1270" width="180" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_SC_GProofNeed" bpmnElement="SC_GProofNeed" bioc:stroke="#4D6181" bioc:fill="#FFFFFF">
+        <dc:Bounds x="2840" y="1285" width="50" height="50"/>
+        <bpmndi:BPMNLabel><dc:Bounds x="2825" y="1265" width="80" height="16"/></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_SC_RequestProof" bpmnElement="SC_RequestProof" bioc:stroke="#1E7F8C" bioc:fill="#E3F4F4">
+        <dc:Bounds x="2980" y="1270" width="200" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_SC_WaitProof" bpmnElement="SC_WaitProof" bioc:stroke="#8A51A1" bioc:fill="#FCF5FF">
+        <dc:Bounds x="3260" y="1285" width="50" height="50"/>
+        <bpmndi:BPMNLabel><dc:Bounds x="3235" y="1251" width="100" height="30"/></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_SC_GetProof" bpmnElement="SC_GetProof" bioc:stroke="#557897" bioc:fill="#FFFFFF">
+        <dc:Bounds x="3427" y="1292" width="36" height="36"/>
+        <bpmndi:BPMNLabel><dc:Bounds x="3467" y="1295" width="100" height="30"/></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_SC_ProofTimeout" bpmnElement="SC_ProofTimeout" bioc:stroke="#557897" bioc:fill="#FFFFFF">
+        <dc:Bounds x="3267" y="1412" width="36" height="36"/>
+        <bpmndi:BPMNLabel><dc:Bounds x="3230" y="1452" width="110" height="30"/></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_SC_InvalidConclusion" bpmnElement="SC_InvalidConclusion" bioc:stroke="#C2701A" bioc:fill="#FFE9CC">
+        <dc:Bounds x="2860" y="1390" width="220" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_SC_MergeReview" bpmnElement="SC_MergeReview" bioc:stroke="#4D6181" bioc:fill="#FFFFFF">
+        <dc:Bounds x="3565" y="1040" width="50" height="50"/>
+        <bpmndi:BPMNLabel><dc:Bounds x="3540" y="1020" width="100" height="16"/></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_SC_Decision" bpmnElement="SC_Decision" bioc:stroke="#15826A" bioc:fill="#DEF7F0">
+        <dc:Bounds x="3660" y="1020" width="200" height="90"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_SC_Draft" bpmnElement="SC_Draft" bioc:stroke="#15826A" bioc:fill="#DEF7F0">
+        <dc:Bounds x="3900" y="1025" width="200" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_PST_End" bpmnElement="PST_End" bioc:stroke="#A33F46" bioc:fill="#FFF0EF">
+        <dc:Bounds x="4142" y="1047" width="36" height="36"/>
+        <bpmndi:BPMNLabel><dc:Bounds x="4120" y="1087" width="80" height="30"/></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_SC_MeetBCS" bpmnElement="SC_MeetBCS" bioc:stroke="#A9721C" bioc:fill="#FFF3DD">
+        <dc:Bounds x="4325" y="1670" width="170" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_SC_ReviewDraft" bpmnElement="SC_ReviewDraft" bioc:stroke="#C2701A" bioc:fill="#FFE9CC">
+        <dc:Bounds x="4540" y="1670" width="180" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_SC_ClassMeeting" bpmnElement="SC_ClassMeeting" bioc:stroke="#A9721C" bioc:fill="#FFF3DD">
+        <dc:Bounds x="4765" y="1670" width="170" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_SC_PublishDraft" bpmnElement="SC_PublishDraft" bioc:stroke="#C2701A" bioc:fill="#FFE9CC">
+        <dc:Bounds x="4980" y="1670" width="180" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_P2_Start" bpmnElement="P2_Start" bioc:stroke="#288A4B" bioc:fill="#EAF9ED">
+        <dc:Bounds x="5282" y="1247" width="36" height="36"/>
+        <bpmndi:BPMNLabel><dc:Bounds x="5260" y="1287" width="80" height="30"/></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_SC_NotifyDraft" bpmnElement="SC_NotifyDraft" bioc:stroke="#1E7F8C" bioc:fill="#E3F4F4">
+        <dc:Bounds x="5353" y="1225" width="180" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_SC_WaitAppeal" bpmnElement="SC_WaitAppeal" bioc:stroke="#8A51A1" bioc:fill="#FCF5FF">
+        <dc:Bounds x="5658" y="1240" width="50" height="50"/>
+        <bpmndi:BPMNLabel><dc:Bounds x="5712" y="1201" width="110" height="30"/></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_SC_GetAccept" bpmnElement="SC_GetAccept" bioc:stroke="#557897" bioc:fill="#FFFFFF">
+        <dc:Bounds x="5882" y="1137" width="36" height="36"/>
+        <bpmndi:BPMNLabel><dc:Bounds x="5850" y="1177" width="100" height="30"/></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_P2_EndAccept" bpmnElement="P2_EndAccept" bioc:stroke="#A33F46" bioc:fill="#FFF0EF">
+        <dc:Bounds x="6042" y="1137" width="36" height="36"/>
+        <bpmndi:BPMNLabel><dc:Bounds x="6015" y="1177" width="90" height="16"/></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_SC_GetAppeal" bpmnElement="SC_GetAppeal" bioc:stroke="#557897" bioc:fill="#FFFFFF">
+        <dc:Bounds x="6252" y="1247" width="36" height="36"/>
+        <bpmndi:BPMNLabel><dc:Bounds x="6292" y="1250" width="90" height="30"/></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_SC_AppealTimeout" bpmnElement="SC_AppealTimeout" bioc:stroke="#557897" bioc:fill="#FFFFFF">
+        <dc:Bounds x="5812" y="1347" width="36" height="36"/>
+        <bpmndi:BPMNLabel><dc:Bounds x="5780" y="1327" width="100" height="16"/></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_SC_AutoAccept" bpmnElement="SC_AutoAccept" bioc:stroke="#1E7F8C" bioc:fill="#E3F4F4">
+        <dc:Bounds x="5935" y="1325" width="190" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_P2_EndAuto" bpmnElement="P2_EndAuto" bioc:stroke="#A33F46" bioc:fill="#FFF0EF">
+        <dc:Bounds x="6182" y="1347" width="36" height="36"/>
+        <bpmndi:BPMNLabel><dc:Bounds x="6150" y="1387" width="100" height="30"/></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_SC_HandleAppeal" bpmnElement="SC_HandleAppeal" bioc:stroke="#C2701A" bioc:fill="#FFE9CC">
+        <dc:Bounds x="6175" y="1435" width="190" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_SC_GAdjust" bpmnElement="SC_GAdjust" bioc:stroke="#4D6181" bioc:fill="#FFFFFF">
+        <dc:Bounds x="6435" y="1450" width="50" height="50"/>
+        <bpmndi:BPMNLabel><dc:Bounds x="6415" y="1504" width="90" height="30"/></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_SC_Edit" bpmnElement="SC_Edit" bioc:stroke="#C2701A" bioc:fill="#FFE9CC">
+        <dc:Bounds x="6580" y="1435" width="180" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_SC_UpdateScore" bpmnElement="SC_UpdateScore" bioc:stroke="#15826A" bioc:fill="#DEF7F0">
+        <dc:Bounds x="6795" y="1435" width="170" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_SC_ReplyAppeal" bpmnElement="SC_ReplyAppeal" bioc:stroke="#1E7F8C" bioc:fill="#E3F4F4">
+        <dc:Bounds x="7025" y="1225" width="190" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_P2_EndReply" bpmnElement="P2_EndReply" bioc:stroke="#A33F46" bioc:fill="#FFF0EF">
+        <dc:Bounds x="7262" y="1247" width="36" height="36"/>
+        <bpmndi:BPMNLabel><dc:Bounds x="7230" y="1287" width="100" height="30"/></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_SC_Remind_Start" bpmnElement="SC_Remind_Start" bioc:stroke="#288A4B" bioc:fill="#EAF9ED">
+        <dc:Bounds x="5360" y="1502" width="36" height="36"/>
+        <bpmndi:BPMNLabel><dc:Bounds x="5343" y="1464" width="80" height="34"/></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_SC_GResponded" bpmnElement="SC_GResponded" bioc:stroke="#4D6181" bioc:fill="#FFFFFF">
+        <dc:Bounds x="5425" y="1495" width="50" height="50"/>
+        <bpmndi:BPMNLabel><dc:Bounds x="5405" y="1547" width="90" height="30"/></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_SC_Remind_Skip" bpmnElement="SC_Remind_Skip" bioc:stroke="#A33F46" bioc:fill="#FFF0EF">
+        <dc:Bounds x="5432" y="1430" width="36" height="36"/>
+        <bpmndi:BPMNLabel><dc:Bounds x="5474" y="1432" width="100" height="32"/></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_SC_SendReminder" bpmnElement="SC_SendReminder" bioc:stroke="#1E7F8C" bioc:fill="#E3F4F4">
+        <dc:Bounds x="5545" y="1485" width="170" height="70"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_SC_Remind_End" bpmnElement="SC_Remind_End" bioc:stroke="#A33F46" bioc:fill="#FFF0EF">
+        <dc:Bounds x="5750" y="1502" width="36" height="36"/>
+        <bpmndi:BPMNLabel><dc:Bounds x="5722" y="1542" width="68" height="30"/></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_SC_Finalize" bpmnElement="SC_Finalize" bioc:stroke="#C2701A" bioc:fill="#FFE9CC">
+        <dc:Bounds x="7490" y="1670" width="180" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_SC_SendFinal" bpmnElement="SC_SendFinal" bioc:stroke="#C2701A" bioc:fill="#FFE9CC">
+        <dc:Bounds x="7720" y="1670" width="200" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_SC_End" bpmnElement="SC_End" bioc:stroke="#A33F46" bioc:fill="#FFF0EF">
+        <dc:Bounds x="7982" y="1692" width="36" height="36"/>
+        <bpmndi:BPMNLabel><dc:Bounds x="7950" y="1732" width="100" height="30"/></bpmndi:BPMNLabel>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNShape id="Shape_Note_BCS" bpmnElement="Note_BCS" bioc:stroke="#C9A227" bioc:fill="#FFFBE6">
+        <dc:Bounds x="4350" y="710" width="700" height="80"/>
+      </bpmndi:BPMNShape>
+      <bpmndi:BPMNEdge id="Edge_FST01" bpmnElement="FST01">
+        <di:waypoint x="398" y="140"/>
+        <di:waypoint x="438" y="140"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_FST02" bpmnElement="FST02">
+        <di:waypoint x="588" y="140"/>
+        <di:waypoint x="628" y="140"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_FST03" bpmnElement="FST03">
+        <di:waypoint x="788" y="140"/>
+        <di:waypoint x="905" y="140"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_FST04" bpmnElement="FST04">
+        <di:waypoint x="1095" y="140"/>
+        <di:waypoint x="5425" y="140"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_FST08" bpmnElement="FST08">
+        <di:waypoint x="5461" y="140"/>
+        <di:waypoint x="5511" y="140"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_FST09" bpmnElement="FST09">
+        <di:waypoint x="5671" y="140"/>
+        <di:waypoint x="5721" y="140"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_FST10" bpmnElement="FST10">
+        <di:waypoint x="5771" y="140"/>
+        <di:waypoint x="6170" y="140"/>
+        <bpmndi:BPMNLabel><dc:Bounds x="5775" y="121" width="23.3438" height="16"/></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_FST11" bpmnElement="FST11">
+        <di:waypoint x="6370" y="140"/>
+        <di:waypoint x="7102" y="140"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_FST12" bpmnElement="FST12">
+        <di:waypoint x="7138" y="140"/>
+        <di:waypoint x="7242" y="140"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_FST13" bpmnElement="FST13">
+        <di:waypoint x="5746" y="165"/>
+        <di:waypoint x="5746" y="260"/>
+        <di:waypoint x="5805" y="260"/>
+        <bpmndi:BPMNLabel><dc:Bounds x="5751" y="171" width="42.6875" height="16"/></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_FST14" bpmnElement="FST14">
+        <di:waypoint x="5995" y="260"/>
+        <di:waypoint x="6042" y="260"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_FST16" bpmnElement="FST16">
+        <di:waypoint x="5591" y="193"/>
+        <di:waypoint x="5591" y="272"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_FES_I1" bpmnElement="FES_I1">
+        <di:waypoint x="1493" y="420"/>
+        <di:waypoint x="1685" y="420"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_FES_I2" bpmnElement="FES_I2">
+        <di:waypoint x="1875" y="420"/>
+        <di:waypoint x="1952" y="420"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_FES_P1" bpmnElement="FES_P1">
+        <di:waypoint x="3098" y="420"/>
+        <di:waypoint x="3340" y="420"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_FES_P2" bpmnElement="FES_P2">
+        <di:waypoint x="3550" y="420"/>
+        <di:waypoint x="3607" y="420"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_FES_R1" bpmnElement="FES_R1">
+        <di:waypoint x="5608" y="420"/>
+        <di:waypoint x="5692" y="420"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_FSC01" bpmnElement="FSC01">
+        <di:waypoint x="238" y="700"/>
+        <di:waypoint x="305" y="700"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_FSC02" bpmnElement="FSC02">
+        <di:waypoint x="455" y="700"/>
+        <di:waypoint x="760" y="700"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_FPST01" bpmnElement="FPST01">
+        <di:waypoint x="848" y="1065"/>
+        <di:waypoint x="885" y="1065"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_FSC_W1" bpmnElement="FSC_W1">
+        <di:waypoint x="935" y="1065"/>
+        <di:waypoint x="982" y="1065"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_FSC_W2" bpmnElement="FSC_W2">
+        <di:waypoint x="910" y="1090"/>
+        <di:waypoint x="910" y="1172"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_FSC_W3" bpmnElement="FSC_W3">
+        <di:waypoint x="928" y="1190"/>
+        <di:waypoint x="990" y="1190"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_FSC_W4" bpmnElement="FSC_W4">
+        <di:waypoint x="1180" y="1190"/>
+        <di:waypoint x="1232" y="1190"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_FSC03" bpmnElement="FSC03">
+        <di:waypoint x="1018" y="1065"/>
+        <di:waypoint x="1065" y="1065"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_FSC04" bpmnElement="FSC04">
+        <di:waypoint x="1245" y="1065"/>
+        <di:waypoint x="1290" y="1065"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_FSC05" bpmnElement="FSC05">
+        <di:waypoint x="1340" y="1065"/>
+        <di:waypoint x="1415" y="1065"/>
+        <bpmndi:BPMNLabel><dc:Bounds x="1344" y="1046" width="46.0156" height="16"/></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_FSC06" bpmnElement="FSC06">
+        <di:waypoint x="1315" y="1040"/>
+        <di:waypoint x="1315" y="790"/>
+        <di:waypoint x="1400" y="790"/>
+        <bpmndi:BPMNLabel><dc:Bounds x="1320" y="796" width="38.0156" height="16"/></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_FSC07" bpmnElement="FSC07">
+        <di:waypoint x="1550" y="790"/>
+        <di:waypoint x="1595" y="790"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_FSC08" bpmnElement="FSC08">
+        <di:waypoint x="1620" y="765"/>
+        <di:waypoint x="1620" y="680"/>
+        <di:waypoint x="1762" y="680"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_FSC10" bpmnElement="FSC10">
+        <di:waypoint x="1645" y="790"/>
+        <di:waypoint x="1852" y="790"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_FSC11" bpmnElement="FSC11">
+        <di:waypoint x="1888" y="790"/>
+        <di:waypoint x="2035" y="790"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_FSC12" bpmnElement="FSC12">
+        <di:waypoint x="2225" y="790"/>
+        <di:waypoint x="2282" y="790"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_FSC09" bpmnElement="FSC09">
+        <di:waypoint x="1780" y="698"/>
+        <di:waypoint x="1780" y="885"/>
+        <di:waypoint x="1155" y="885"/>
+        <di:waypoint x="1155" y="1025"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_FSC13" bpmnElement="FSC13">
+        <di:waypoint x="1575" y="1065"/>
+        <di:waypoint x="1610" y="1065"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_FAI01" bpmnElement="FAI01">
+        <di:waypoint x="1678" y="1020"/>
+        <di:waypoint x="1715" y="1020"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_FAI02" bpmnElement="FAI02">
+        <di:waypoint x="1865" y="1020"/>
+        <di:waypoint x="1900" y="1020"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_FAI03" bpmnElement="FAI03">
+        <di:waypoint x="1950" y="1020"/>
+        <di:waypoint x="2015" y="1020"/>
+        <bpmndi:BPMNLabel><dc:Bounds x="1954" y="1001" width="61.25" height="16"/></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_FAI04" bpmnElement="FAI04">
+        <di:waypoint x="2205" y="1020"/>
+        <di:waypoint x="2242" y="1020"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_FAI05" bpmnElement="FAI05">
+        <di:waypoint x="1925" y="1045"/>
+        <di:waypoint x="1925" y="1107"/>
+        <bpmndi:BPMNLabel><dc:Bounds x="1930" y="1051" width="69.3438" height="16"/></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_FSC14" bpmnElement="FSC14">
+        <di:waypoint x="2310" y="1065"/>
+        <di:waypoint x="2335" y="1065"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_FSC15" bpmnElement="FSC15">
+        <di:waypoint x="2230" y="1218"/>
+        <di:waypoint x="2230" y="1270"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_FSC16" bpmnElement="FSC16">
+        <di:waypoint x="2315" y="1310"/>
+        <di:waypoint x="2360" y="1310"/>
+        <di:waypoint x="2360" y="1090"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_FSC14b" bpmnElement="FSC14b">
+        <di:waypoint x="2385" y="1065"/>
+        <di:waypoint x="2475" y="1065"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_FSC17" bpmnElement="FSC17">
+        <di:waypoint x="2525" y="1065"/>
+        <di:waypoint x="3565" y="1065"/>
+        <bpmndi:BPMNLabel><dc:Bounds x="2529" y="1046" width="43.8906" height="16"/></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_FSC18" bpmnElement="FSC18">
+        <di:waypoint x="2500" y="1090"/>
+        <di:waypoint x="2500" y="1270"/>
+        <bpmndi:BPMNLabel><dc:Bounds x="2505" y="1096" width="62.6875" height="16"/></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_FSC19" bpmnElement="FSC19">
+        <di:waypoint x="2585" y="1310"/>
+        <di:waypoint x="2615" y="1310"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_FSC20" bpmnElement="FSC20">
+        <di:waypoint x="2795" y="1310"/>
+        <di:waypoint x="2840" y="1310"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_FSC21" bpmnElement="FSC21">
+        <di:waypoint x="2890" y="1310"/>
+        <di:waypoint x="2980" y="1310"/>
+        <bpmndi:BPMNLabel><dc:Bounds x="2894" y="1291" width="76.0312" height="16"/></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_FSC22" bpmnElement="FSC22">
+        <di:waypoint x="2865" y="1335"/>
+        <di:waypoint x="2865" y="1367"/>
+        <di:waypoint x="2970" y="1367"/>
+        <di:waypoint x="2970" y="1390"/>
+        <bpmndi:BPMNLabel><dc:Bounds x="2869" y="1348" width="108" height="16"/></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_FSC23" bpmnElement="FSC23">
+        <di:waypoint x="3180" y="1310"/>
+        <di:waypoint x="3260" y="1310"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_FSC24" bpmnElement="FSC24">
+        <di:waypoint x="3310" y="1310"/>
+        <di:waypoint x="3427" y="1310"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_FSC26" bpmnElement="FSC26">
+        <di:waypoint x="3285" y="1335"/>
+        <di:waypoint x="3285" y="1412"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_FSC27" bpmnElement="FSC27">
+        <di:waypoint x="3267" y="1430"/>
+        <di:waypoint x="3080" y="1430"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_FSC25" bpmnElement="FSC25">
+        <di:waypoint x="3445" y="1328"/>
+        <di:waypoint x="3445" y="1540"/>
+        <di:waypoint x="1770" y="1540"/>
+        <di:waypoint x="1770" y="1200"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_FSC28" bpmnElement="FSC28">
+        <di:waypoint x="2970" y="1470"/>
+        <di:waypoint x="2970" y="1495"/>
+        <di:waypoint x="3590" y="1495"/>
+        <di:waypoint x="3590" y="1090"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_FSC29" bpmnElement="FSC29">
+        <di:waypoint x="3615" y="1065"/>
+        <di:waypoint x="3660" y="1065"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_FSC30" bpmnElement="FSC30">
+        <di:waypoint x="3860" y="1065"/>
+        <di:waypoint x="3900" y="1065"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_FPST_END" bpmnElement="FPST_END">
+        <di:waypoint x="4100" y="1065"/>
+        <di:waypoint x="4142" y="1065"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_FEA01" bpmnElement="FEA01">
+        <di:waypoint x="2498" y="755"/>
+        <di:waypoint x="2560" y="755"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_FEA02" bpmnElement="FEA02">
+        <di:waypoint x="2760" y="755"/>
+        <di:waypoint x="2812" y="755"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_FSC31" bpmnElement="FSC31">
+        <di:waypoint x="4210" y="1540"/>
+        <di:waypoint x="4270" y="1540"/>
+        <di:waypoint x="4270" y="1710"/>
+        <di:waypoint x="4325" y="1710"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_FSC32" bpmnElement="FSC32">
+        <di:waypoint x="4495" y="1710"/>
+        <di:waypoint x="4540" y="1710"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_FSC33" bpmnElement="FSC33">
+        <di:waypoint x="4720" y="1710"/>
+        <di:waypoint x="4765" y="1710"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_FSC34" bpmnElement="FSC34">
+        <di:waypoint x="4935" y="1710"/>
+        <di:waypoint x="4980" y="1710"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_FSC35" bpmnElement="FSC35">
+        <di:waypoint x="5160" y="1710"/>
+        <di:waypoint x="5200" y="1710"/>
+        <di:waypoint x="5200" y="1265"/>
+        <di:waypoint x="5240" y="1265"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_FP2_01" bpmnElement="FP2_01">
+        <di:waypoint x="5318" y="1265"/>
+        <di:waypoint x="5353" y="1265"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_FSC36" bpmnElement="FSC36">
+        <di:waypoint x="5533" y="1265"/>
+        <di:waypoint x="5658" y="1265"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_FSC37" bpmnElement="FSC37">
+        <di:waypoint x="5683" y="1240"/>
+        <di:waypoint x="5683" y="1155"/>
+        <di:waypoint x="5882" y="1155"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_FSC37b" bpmnElement="FSC37b">
+        <di:waypoint x="5918" y="1155"/>
+        <di:waypoint x="6042" y="1155"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_FSC38" bpmnElement="FSC38">
+        <di:waypoint x="5708" y="1265"/>
+        <di:waypoint x="6252" y="1265"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_FSC39" bpmnElement="FSC39">
+        <di:waypoint x="5683" y="1290"/>
+        <di:waypoint x="5683" y="1365"/>
+        <di:waypoint x="5812" y="1365"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_FSC39b" bpmnElement="FSC39b">
+        <di:waypoint x="5848" y="1365"/>
+        <di:waypoint x="5935" y="1365"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_FSC39c" bpmnElement="FSC39c">
+        <di:waypoint x="6125" y="1365"/>
+        <di:waypoint x="6182" y="1365"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_FSC42" bpmnElement="FSC42">
+        <di:waypoint x="6270" y="1283"/>
+        <di:waypoint x="6270" y="1435"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_FSC43" bpmnElement="FSC43">
+        <di:waypoint x="6365" y="1475"/>
+        <di:waypoint x="6435" y="1475"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_FSC44" bpmnElement="FSC44">
+        <di:waypoint x="6485" y="1475"/>
+        <di:waypoint x="6580" y="1475"/>
+        <bpmndi:BPMNLabel><dc:Bounds x="6489" y="1456" width="64.7031" height="16"/></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_FSC45" bpmnElement="FSC45">
+        <di:waypoint x="6460" y="1450"/>
+        <di:waypoint x="6460" y="1265"/>
+        <di:waypoint x="7025" y="1265"/>
+        <bpmndi:BPMNLabel><dc:Bounds x="6464" y="1246" width="100.719" height="16"/></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_FSC46" bpmnElement="FSC46">
+        <di:waypoint x="6760" y="1475"/>
+        <di:waypoint x="6795" y="1475"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_FSC47" bpmnElement="FSC47">
+        <di:waypoint x="6965" y="1475"/>
+        <di:waypoint x="7120" y="1475"/>
+        <di:waypoint x="7120" y="1305"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_FSC48" bpmnElement="FSC48">
+        <di:waypoint x="7215" y="1265"/>
+        <di:waypoint x="7262" y="1265"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_FES_S1" bpmnElement="FES_S1">
+        <di:waypoint x="5396" y="1520"/>
+        <di:waypoint x="5425" y="1520"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_FES_S3" bpmnElement="FES_S3">
+        <di:waypoint x="5475" y="1520"/>
+        <di:waypoint x="5545" y="1520"/>
+        <bpmndi:BPMNLabel><dc:Bounds x="5483" y="1502" width="34" height="16"/></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_FES_S4" bpmnElement="FES_S4">
+        <di:waypoint x="5450" y="1495"/>
+        <di:waypoint x="5450" y="1466"/>
+        <bpmndi:BPMNLabel><dc:Bounds x="5456" y="1472" width="20" height="16"/></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_FES_S2" bpmnElement="FES_S2">
+        <di:waypoint x="5715" y="1520"/>
+        <di:waypoint x="5750" y="1520"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_FSC49" bpmnElement="FSC49">
+        <di:waypoint x="7370" y="1540"/>
+        <di:waypoint x="7430" y="1540"/>
+        <di:waypoint x="7430" y="1710"/>
+        <di:waypoint x="7490" y="1710"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_FSC50" bpmnElement="FSC50">
+        <di:waypoint x="7670" y="1710"/>
+        <di:waypoint x="7720" y="1710"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_FSC51" bpmnElement="FSC51">
+        <di:waypoint x="7920" y="1710"/>
+        <di:waypoint x="7982" y="1710"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_MF01" bpmnElement="MF01">
+        <di:waypoint x="380" y="660"/>
+        <di:waypoint x="380" y="158"/>
+        <bpmndi:BPMNLabel><dc:Bounds x="385" y="546" width="47.0781" height="16"/></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_MF02" bpmnElement="MF02">
+        <di:waypoint x="1000" y="175"/>
+        <di:waypoint x="1000" y="1047"/>
+        <bpmndi:BPMNLabel><dc:Bounds x="918" y="546" width="77.375" height="16"/></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_MF03" bpmnElement="MF03">
+        <di:waypoint x="1475" y="750"/>
+        <di:waypoint x="1475" y="438"/>
+        <bpmndi:BPMNLabel><dc:Bounds x="1480" y="546" width="147.375" height="16"/></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_MF04" bpmnElement="MF04">
+        <di:waypoint x="1780" y="455"/>
+        <di:waypoint x="1780" y="662"/>
+        <bpmndi:BPMNLabel><dc:Bounds x="1785" y="546" width="76.0312" height="16"/></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_MF05" bpmnElement="MF05">
+        <di:waypoint x="2130" y="750"/>
+        <di:waypoint x="2130" y="570"/>
+        <di:waypoint x="1056" y="570"/>
+        <di:waypoint x="1056" y="438"/>
+        <bpmndi:BPMNLabel><dc:Bounds x="2135" y="700" width="87.2344" height="16"/></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_MF06" bpmnElement="MF06">
+        <di:waypoint x="3080" y="1270"/>
+        <di:waypoint x="3080" y="438"/>
+        <bpmndi:BPMNLabel><dc:Bounds x="3085" y="546" width="164.75" height="16"/></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_MF07" bpmnElement="MF07">
+        <di:waypoint x="3445" y="455"/>
+        <di:waypoint x="3445" y="1292"/>
+        <bpmndi:BPMNLabel><dc:Bounds x="3450" y="546" width="123.406" height="16"/></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_MF08" bpmnElement="MF08">
+        <di:waypoint x="5443" y="1225"/>
+        <di:waypoint x="5443" y="158"/>
+        <bpmndi:BPMNLabel><dc:Bounds x="5448" y="546" width="138.078" height="16"/></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_MF13" bpmnElement="MF13">
+        <di:waypoint x="5590" y="1485"/>
+        <di:waypoint x="5590" y="438"/>
+        <bpmndi:BPMNLabel><dc:Bounds x="5595" y="546" width="59.3594" height="16"/></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_MF09" bpmnElement="MF09">
+        <di:waypoint x="5900" y="295"/>
+        <di:waypoint x="5900" y="1137"/>
+        <bpmndi:BPMNLabel><dc:Bounds x="5905" y="546" width="75.3594" height="16"/></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_MF10" bpmnElement="MF10">
+        <di:waypoint x="6270" y="175"/>
+        <di:waypoint x="6270" y="1247"/>
+        <bpmndi:BPMNLabel><dc:Bounds x="6275" y="546" width="77.375" height="16"/></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_MF11" bpmnElement="MF11">
+        <di:waypoint x="7120" y="1225"/>
+        <di:waypoint x="7120" y="158"/>
+        <bpmndi:BPMNLabel><dc:Bounds x="7125" y="546" width="104.703" height="16"/></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_MF12" bpmnElement="MF12">
+        <di:waypoint x="7820" y="1750"/>
+        <di:waypoint x="7820" y="1870"/>
+        <bpmndi:BPMNLabel><dc:Bounds x="7825" y="1836" width="108.031" height="16"/></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_FES_C1" bpmnElement="FES_C1">
+        <di:waypoint x="1066" y="420"/>
+        <di:waypoint x="1280" y="420"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_FES_A1" bpmnElement="FES_A1">
+        <di:waypoint x="6018" y="420"/>
+        <di:waypoint x="6150" y="420"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_FSC06b" bpmnElement="FSC06b">
+        <di:waypoint x="1315" y="1040"/>
+        <di:waypoint x="1315" y="850"/>
+        <di:waypoint x="2130" y="850"/>
+        <di:waypoint x="2130" y="830"/>
+        <bpmndi:BPMNLabel><dc:Bounds x="1420" y="853" width="95" height="16"/></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_MF14" bpmnElement="MF14">
+        <di:waypoint x="1040" y="1150"/>
+        <di:waypoint x="1040" y="438"/>
+        <bpmndi:BPMNLabel><dc:Bounds x="1053" y="1112" width="150" height="16"/></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_MF15" bpmnElement="MF15">
+        <di:waypoint x="6000" y="1325"/>
+        <di:waypoint x="6000" y="438"/>
+        <bpmndi:BPMNLabel><dc:Bounds x="6005" y="980" width="150" height="16"/></bpmndi:BPMNLabel>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_DIA_HS_Read" bpmnElement="DIA_HS_Read">
+        <di:waypoint x="1790" y="1110"/>
+        <di:waypoint x="1790" y="1060"/>
+      </bpmndi:BPMNEdge>
+      <bpmndi:BPMNEdge id="Edge_DIA_Reg_Transparency" bpmnElement="DIA_Reg_Transparency">
+        <di:waypoint x="2110" y="1110"/>
+        <di:waypoint x="2110" y="1065"/>
+      </bpmndi:BPMNEdge>
+    </bpmndi:BPMNPlane>
+  </bpmndi:BPMNDiagram>
+</bpmn:definitions>

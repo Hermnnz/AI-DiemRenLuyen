@@ -2,6 +2,9 @@ import os
 import sys
 import json
 
+# Add root directory to sys.path
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
+
 # Ensure UTF-8 output on Windows consoles
 if sys.platform == "win32":
     try:
@@ -11,9 +14,6 @@ if sys.platform == "win32":
         pass
 from datetime import datetime
 from api.app.security import hash_password
-
-# Add root directory to sys.path
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
 
 from api.app.database import SessionLocal, engine, Base
 from api.app.config import settings

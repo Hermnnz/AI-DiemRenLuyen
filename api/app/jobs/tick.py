@@ -1,6 +1,10 @@
 import argparse
 import sys
+import os
 from datetime import datetime, timezone
+
+# Add root directory to sys.path
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..")))
 
 # Ensure UTF-8 output on Windows consoles
 if sys.platform == "win32":
@@ -10,11 +14,19 @@ if sys.platform == "win32":
     except Exception:
         pass
 
+from api.app.database import SessionLocal
+from api.app.services.deadline_service import run_deadline_tick
+
 
 def run_tick(target_time: datetime):
     print(f"[DeadlineTick] Chạy kiểm tra hạn tại mốc thời gian (UTC): {target_time.isoformat()}")
-    # Vỏ giai đoạn 0: Đặt cấu trúc lệnh, Gói A sẽ hoàn thiện chi tiết nghiệp vụ workflow/state transitions
-    print("[DeadlineTick] Hoàn thành kiểm tra hạn thành công.")
+    db = SessionLocal()
+    try:
+        stats = run_deadline_tick(db, target_time)
+        print(f"[DeadlineTick] Kết quả: {stats}")
+        print("[DeadlineTick] Hoàn thành kiểm tra hạn thành công.")
+    finally:
+        db.close()
 
 
 def main():

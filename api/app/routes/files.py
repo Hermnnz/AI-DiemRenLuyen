@@ -1,11 +1,12 @@
 from fastapi import APIRouter, Depends
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, RedirectResponse
 from sqlalchemy.orm import Session
 from api.app.database import get_db
 from api.app.models.entities import EvidenceFile, Claim, Case, Campaign, User
 from api.app.schemas import AppError
 from api.app.services.auth_service import get_current_user
 from api.app.services.file_service import get_file_path
+from api.app.services.remote_storage import create_download_url, remote_storage_enabled
 
 router = APIRouter(prefix="/files", tags=["Files"])
 
@@ -50,6 +51,9 @@ def get_file(
             code="FORBIDDEN",
             message="Vai trò của bạn không được phép xem minh chứng trực tiếp."
         )
+
+    if remote_storage_enabled():
+        return RedirectResponse(url=create_download_url(ev.storage_key), status_code=307)
 
     file_path = get_file_path(ev.storage_key)
 

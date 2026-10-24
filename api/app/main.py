@@ -14,6 +14,7 @@ from api.app.routes import (
     gvcn,
     files,
     notifications,
+    internal,
 )
 
 app = FastAPI(
@@ -88,3 +89,4 @@ app.include_router(admin.router, prefix=settings.API_V1_PREFIX)
 app.include_router(gvcn.router, prefix=settings.API_V1_PREFIX)
 app.include_router(files.router, prefix=settings.API_V1_PREFIX)
 app.include_router(notifications.router, prefix=settings.API_V1_PREFIX)
+app.include_router(internal.router, prefix=settings.API_V1_PREFIX)

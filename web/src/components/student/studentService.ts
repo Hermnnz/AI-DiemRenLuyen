@@ -233,6 +233,31 @@ class StudentService {
 
     if (this.mode === 'live') {
       const api = await getApi();
+      if (import.meta.env?.VITE_DIRECT_UPLOAD === 'true') {
+        if (!(file instanceof File)) {
+          throw { error: { code: 'INVALID_FILE', message: 'Không thể đọc tệp minh chứng.', fields: {} } };
+        }
+        const reservation = await api.post(`/student/cases/${caseId}/evidence/upload-ticket`, {
+          criterion_id: criterionId,
+          filename: file.name,
+          mime_type: file.type,
+          size_bytes: file.size,
+        }) as { upload_url: string; ticket: string };
+        let uploadResponse: Response;
+        try {
+          uploadResponse = await fetch(reservation.upload_url, {
+            method: 'PUT',
+            headers: { 'Content-Type': file.type },
+            body: file,
+          });
+        } catch {
+          throw { error: { code: 'UPLOAD_FAILED', message: 'Không kết nối được kho minh chứng.', fields: {} } };
+        }
+        if (!uploadResponse.ok) {
+          throw { error: { code: 'UPLOAD_FAILED', message: 'Tải minh chứng lên thất bại. Vui lòng thử lại.', fields: {} } };
+        }
+        return await api.post(`/student/cases/${caseId}/evidence/complete`, { ticket: reservation.ticket });
+      }
       const formData = new FormData();
       formData.append('criterion_id', criterionId);
       if (file instanceof File) {

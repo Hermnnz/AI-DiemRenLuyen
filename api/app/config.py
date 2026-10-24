@@ -21,6 +21,12 @@ class Settings(BaseSettings):
     # Storage
     STORAGE_DIR: str = os.getenv("STORAGE_DIR", "./storage")
     MAX_UPLOAD_SIZE_MB: int = int(os.getenv("MAX_UPLOAD_SIZE_MB", "10"))
+    STORAGE_BACKEND: str = os.getenv("STORAGE_BACKEND", "local")
+    SUPABASE_URL: str = os.getenv("SUPABASE_URL", "")
+    SUPABASE_SECRET_KEY: str = os.getenv("SUPABASE_SECRET_KEY", "")
+    SUPABASE_BUCKET: str = os.getenv("SUPABASE_BUCKET", "evidence")
+    IS_PRODUCTION: bool = os.getenv("IS_PRODUCTION", "false").lower() == "true"
+    CRON_SECRET: str = os.getenv("CRON_SECRET", "")
     
     # Server & CORS
     API_HOST: str = os.getenv("API_HOST", "0.0.0.0")
@@ -42,3 +48,11 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+if settings.IS_PRODUCTION:
+    if settings.SECRET_KEY.startswith("dev_secret_key_") or len(settings.SECRET_KEY) < 32:
+        raise RuntimeError("Production SECRET_KEY is missing or too short")
+    if "localhost" in settings.DATABASE_URL or "127.0.0.1" in settings.DATABASE_URL:
+        raise RuntimeError("Production DATABASE_URL must use the hosted database")
+    if settings.STORAGE_BACKEND != "supabase" or not settings.SUPABASE_SECRET_KEY:
+        raise RuntimeError("Production Supabase Storage configuration is missing")

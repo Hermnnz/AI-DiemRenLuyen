@@ -87,7 +87,7 @@ export const LoginPage: React.FC = () => {
               type="text"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
-              placeholder="Nhập tên đăng nhập (ví dụ: sv001, bcs001...)"
+              placeholder="Nhập tên đăng nhập"
               autoComplete="username"
               style={{
                 width: '100%',
@@ -131,7 +131,7 @@ export const LoginPage: React.FC = () => {
           </button>
         </form>
 
-        <div style={{ marginTop: '1.5rem', fontSize: '0.8rem', color: '#64748b', borderTop: '1px solid #e2e8f0', paddingTop: '1rem', lineHeight: 1.6 }}>
+        {import.meta.env.DEV && <div style={{ marginTop: '1.5rem', fontSize: '0.8rem', color: '#64748b', borderTop: '1px solid #e2e8f0', paddingTop: '1rem', lineHeight: 1.6 }}>
           <strong>Tài khoản seed mẫu theo vai trò:</strong>
           <ul style={{ paddingLeft: '1.25rem', marginTop: '0.25rem' }}>
             <li>Sinh viên: <code>sv001</code>, <code>sv002</code>, <code>sv003</code></li>
@@ -142,7 +142,7 @@ export const LoginPage: React.FC = () => {
           <p style={{ marginTop: '0.5rem', fontSize: '0.75rem', color: '#94a3b8' }}>
             * Mật khẩu được thiết lập qua biến môi trường DEMO_PASSWORD khi seed database.
           </p>
-        </div>
+        </div>}
       </div>
     </div>
   );

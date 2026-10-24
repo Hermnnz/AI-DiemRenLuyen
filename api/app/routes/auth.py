@@ -29,6 +29,7 @@ def login(login_data: LoginRequest, response: Response, db: Session = Depends(ge
         max_age=settings.SESSION_EXPIRE_HOURS * 3600,
         httponly=True,
         samesite="lax",
+        secure=settings.IS_PRODUCTION,
         path="/",
     )
     return AuthResponse(

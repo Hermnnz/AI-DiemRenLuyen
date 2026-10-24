@@ -1,8 +1,13 @@
 from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Optional, List
+import hashlib
+import uuid
 from fastapi import APIRouter, Depends, Form, UploadFile, File, Header, status
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import IntegrityError
+from api.app.config import settings
 from api.app.database import get_db
 from api.app.models.entities import (
     User,
@@ -38,13 +43,51 @@ from api.app.schemas import (
     format_score,
 )
 from api.app.services.auth_service import require_roles, verify_csrf
-from api.app.services.file_service import save_upload_file
+from api.app.services.file_service import ALLOWED_MIME_TYPES, save_upload_file
+from api.app.services.remote_storage import create_upload_url, download_object, remote_storage_enabled
+from api.app.services.upload_ticket import issue_upload_ticket, verify_upload_ticket
 from api.app.services.scoring_service import parse_score, validate_score_bounds, sum_scores
 from api.app.services.workflow_service import submit_student_case
 from api.app.services.audit_service import log_audit
 from api.app.services.notification_service import send_notification
 
 router = APIRouter(prefix="/student", tags=["Student"])
+
+
+class UploadTicketRequest(BaseModel):
+    criterion_id: str
+    filename: str = Field(min_length=1, max_length=255)
+    mime_type: str
+    size_bytes: int = Field(gt=0)
+
+
+class CompleteUploadRequest(BaseModel):
+    ticket: str = Field(min_length=10, max_length=2048)
+
+
+def _evidence_target(db: Session, case_id: str, criterion_id: str, student_id: str) -> tuple[Case, Criterion]:
+    case = db.query(Case).filter(Case.id == case_id).first()
+    if not case:
+        raise AppError(status_code=404, code="NOT_FOUND", message="Không tìm thấy hồ sơ.")
+    if case.student_id != student_id:
+        raise AppError(status_code=403, code="FORBIDDEN", message="Bạn không có quyền tải tệp lên hồ sơ này.")
+    if case.status not in ["DRAFT", "NEEDS_INFO", "NEEDS_PROOF"]:
+        raise AppError(status_code=409, code="INVALID_STATE", message=f"Không thể tải minh chứng khi hồ sơ ở trạng thái {case.status}.")
+    criterion = db.query(Criterion).filter(Criterion.id == criterion_id, Criterion.campaign_id == case.campaign_id).first()
+    if not criterion:
+        raise AppError(status_code=404, code="NOT_FOUND", message="Không tìm thấy tiêu chí đánh giá.")
+    return case, criterion
+
+
+def _evidence_schema(ev: EvidenceFile) -> EvidenceFileSchema:
+    return EvidenceFileSchema(
+        id=ev.id,
+        original_name=ev.original_name,
+        mime_type=ev.mime_type,
+        size_bytes=ev.size_bytes,
+        uploaded_at=format_datetime(ev.uploaded_at),
+        is_current=ev.is_current,
+    )
 
 
 def _build_claim_schema(cl: Claim, crit: Criterion, is_published_or_above: bool) -> ClaimSchema:
@@ -303,6 +346,102 @@ def update_claim(
     )
 
 
+@router.post("/cases/{caseId}/evidence/upload-ticket", dependencies=[Depends(verify_csrf)])
+def create_evidence_upload_ticket(
+    caseId: str,
+    request: UploadTicketRequest,
+    auth_data: tuple[User, list[str]] = Depends(require_roles("STUDENT")),
+    db: Session = Depends(get_db),
+):
+    if not remote_storage_enabled():
+        raise AppError(status_code=503, code="STORAGE_NOT_CONFIGURED", message="Tải trực tiếp chỉ dùng khi bật kho minh chứng trực tuyến.")
+    student_user, _ = auth_data
+    _evidence_target(db, caseId, request.criterion_id, student_user.id)
+    if request.mime_type not in ALLOWED_MIME_TYPES:
+        raise AppError(status_code=422, code="INVALID_FILE_TYPE", message="Chỉ chấp nhận PDF, JPG, PNG.")
+    if request.size_bytes > settings.MAX_UPLOAD_SIZE_MB * 1024 * 1024:
+        raise AppError(status_code=422, code="FILE_TOO_LARGE", message=f"Dung lượng tệp tối đa là {settings.MAX_UPLOAD_SIZE_MB} MB.")
+
+    filename = request.filename.replace("\\", "/").split("/")[-1].strip()
+    if not filename or "\x00" in filename:
+        raise AppError(status_code=422, code="INVALID_FILE_NAME", message="Tên tệp không hợp lệ.")
+    storage_key = f"{uuid.uuid4()}{ALLOWED_MIME_TYPES[request.mime_type]}"
+    payload = {
+        "user": student_user.id,
+        "case": caseId,
+        "criterion": request.criterion_id,
+        "key": storage_key,
+        "name": filename,
+        "mime": request.mime_type,
+        "size": request.size_bytes,
+    }
+    return {"upload_url": create_upload_url(storage_key), "ticket": issue_upload_ticket(payload)}
+
+
+@router.post("/cases/{caseId}/evidence/complete", response_model=EvidenceFileSchema, status_code=status.HTTP_201_CREATED, dependencies=[Depends(verify_csrf)])
+def complete_evidence_upload(
+    caseId: str,
+    request: CompleteUploadRequest,
+    auth_data: tuple[User, list[str]] = Depends(require_roles("STUDENT")),
+    db: Session = Depends(get_db),
+):
+    if not remote_storage_enabled():
+        raise AppError(status_code=503, code="STORAGE_NOT_CONFIGURED", message="Kho minh chứng trực tuyến chưa được bật.")
+    student_user, _ = auth_data
+    payload = verify_upload_ticket(request.ticket)
+    if payload.get("user") != student_user.id or payload.get("case") != caseId:
+        raise AppError(status_code=403, code="FORBIDDEN", message="Phiếu tải minh chứng không thuộc hồ sơ này.")
+    criterion_id = payload.get("criterion")
+    if not isinstance(criterion_id, str):
+        raise AppError(status_code=400, code="INVALID_UPLOAD_TICKET", message="Phiếu tải minh chứng không hợp lệ.")
+    case, criterion = _evidence_target(db, caseId, criterion_id, student_user.id)
+    storage_key = payload.get("key")
+    mime_type = payload.get("mime")
+    expected_size = payload.get("size")
+    if not isinstance(storage_key, str) or not isinstance(mime_type, str) or not isinstance(expected_size, int):
+        raise AppError(status_code=400, code="INVALID_UPLOAD_TICKET", message="Phiếu tải minh chứng không hợp lệ.")
+    if db.query(EvidenceFile).filter(EvidenceFile.storage_key == storage_key).first():
+        raise AppError(status_code=409, code="UPLOAD_ALREADY_COMPLETED", message="Minh chứng này đã được ghi nhận.")
+
+    content = download_object(storage_key)
+    max_bytes = settings.MAX_UPLOAD_SIZE_MB * 1024 * 1024
+    if len(content) != expected_size or len(content) > max_bytes:
+        raise AppError(status_code=422, code="FILE_TOO_LARGE", message="Dung lượng tệp tải lên không khớp hoặc vượt giới hạn.")
+    magic = {
+        "application/pdf": content.startswith(b"%PDF-"),
+        "image/jpeg": content.startswith(b"\xff\xd8\xff"),
+        "image/png": content.startswith(b"\x89PNG\r\n\x1a\n"),
+    }
+    if not magic.get(mime_type, False):
+        raise AppError(status_code=422, code="INVALID_FILE_TYPE", message="Nội dung tệp không khớp định dạng PDF, JPG hoặc PNG.")
+
+    claim = db.query(Claim).filter(Claim.case_id == case.id, Claim.criterion_id == criterion.id).first()
+    if not claim:
+        claim = Claim(case_id=case.id, criterion_id=criterion.id)
+        db.add(claim)
+        db.flush()
+    ev = EvidenceFile(
+        claim_id=claim.id,
+        storage_key=storage_key,
+        original_name=payload["name"],
+        mime_type=mime_type,
+        size_bytes=len(content),
+        sha256=hashlib.sha256(content).hexdigest(),
+        uploaded_by=student_user.id,
+        uploaded_at=datetime.now(timezone.utc),
+        is_current=True,
+    )
+    db.add(ev)
+    case.updated_at = datetime.now(timezone.utc)
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise AppError(status_code=409, code="UPLOAD_ALREADY_COMPLETED", message="Minh chứng này đã được ghi nhận.") from exc
+    db.refresh(ev)
+    return _evidence_schema(ev)
+
+
 @router.post("/cases/{caseId}/evidence", response_model=EvidenceFileSchema, status_code=status.HTTP_201_CREATED, dependencies=[Depends(verify_csrf)])
 async def upload_evidence(
     caseId: str,
@@ -311,6 +450,8 @@ async def upload_evidence(
     auth_data: tuple[User, list[str]] = Depends(require_roles("STUDENT")),
     db: Session = Depends(get_db),
 ):
+    if remote_storage_enabled():
+        raise AppError(status_code=409, code="DIRECT_UPLOAD_REQUIRED", message="Vui lòng tải minh chứng trực tiếp lên kho lưu trữ.")
     student_user, _ = auth_data
     case = db.query(Case).filter(Case.id == caseId).first()
     if not case:

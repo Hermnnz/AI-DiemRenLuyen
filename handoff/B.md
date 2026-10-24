@@ -1,6 +1,7 @@
 # Báo cáo Bàn giao Gói B — Frontend Sinh viên (Student Portal)
 
 - **Nhánh làm việc:** `goi-b`
+- **Commit hash hoàn thành:** `ddc6811`
 - **Cam kết gốc:** `5a88f46` (tag: `foundation-v1`)
 - **Ngày hoàn thành:** 24/10/2026
 - **Người thực hiện:** AI Pair Programmer (Gói B)

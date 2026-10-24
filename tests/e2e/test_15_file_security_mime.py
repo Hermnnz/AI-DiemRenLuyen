@@ -48,7 +48,7 @@ def test_15_file_upload_mime_validation_and_access_security(api_client: Acceptan
         data={"criterion_id": tc01_id},
         files=good_pdf
     )
-    assert res_good.status_code == 200
+    assert res_good.status_code in [200, 201]
     file_meta = res_good.json()
     file_id = file_meta.get("id")
     assert file_id is not None

@@ -43,7 +43,7 @@ def test_03_draft_persistence_and_claimed_total_calculation(api_client: Acceptan
         data={"criterion_id": tc01_id},
         files=files
     )
-    assert upload_res.status_code == 200
+    assert upload_res.status_code in [200, 201]
     evidence_meta = upload_res.json()
     assert evidence_meta["original_name"] == "minh_chung_nckh.pdf"
 

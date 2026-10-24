@@ -18,38 +18,68 @@ pytestmark = [
 def test_05_exceeding_info_rounds_or_deadline_closes_incomplete(api_client: AcceptanceTestClient):
     """
     Kịch bản:
-    1. Hồ sơ đã qua số vòng bổ sung tối đa max_info_rounds (mặc định 2).
-    2. Sinh viên tiếp tục nộp hồ sơ khi vẫn thiếu minh chứng bắt buộc.
-    3. Kỳ vọng:
-       - Hồ sơ đóng ngay sang CLOSED_INCOMPLETE.
-       - Không tạo thêm yêu cầu bổ sung mới (không tạo vòng lặp vô tận).
-    4. Thử nộp hoặc sửa điểm khi hồ sơ đã CLOSED_INCOMPLETE -> API trả về mã 409 Conflict.
-    5. Kiểm tra trường hợp quá hạn bổ sung INFO qua deadline tick:
-       - Tick phát hiện quá hạn supplement_requests(kind=INFO) -> đóng CLOSED_INCOMPLETE.
+    1. Sinh viên sv002 điền điểm tự chấm cho toàn bộ tiêu chí nhưng không tải minh chứng bắt buộc.
+    2. Nộp lần 1: Thiếu minh chứng -> hồ sơ chuyển NEEDS_INFO (round 1).
+    3. Nộp lần 2: Vẫn thiếu minh chứng -> hồ sơ chuyển NEEDS_INFO (round 2 = max_info_rounds).
+    4. Nộp lần 3: Vượt quá số vòng bổ sung tối đa max_info_rounds (2) -> hồ sơ đóng ngay sang CLOSED_INCOMPLETE.
+    5. Kỳ vọng:
+       - Không tạo thêm yêu cầu bổ sung mới.
+       - Thử nộp hoặc sửa điểm khi hồ sơ đã CLOSED_INCOMPLETE -> API trả về mã 409 Conflict.
     """
-    api_client.login_as_student("sv001")
+    api_client.login_as_student("sv002")
     current_data = api_client.get("/api/v1/student/current").json()
     case_id = current_data["case"]["id"]
     version = current_data["case"]["version"]
+    criteria = current_data["criteria"]
 
-    # In integration test, simulate case reaching max_info_rounds
-    # Submit without evidence when rounds exhausted
-    submit_res = api_client.post(
+    # Điền điểm cho toàn bộ tiêu chí
+    for crit in criteria:
+        put_res = api_client.put(
+            f"/api/v1/student/cases/{case_id}/claims/{crit['id']}",
+            json={"self_score": "8.00", "student_note": "Tự chấm mẫu", "expected_version": version}
+        )
+        assert put_res.status_code == 200
+        version = put_res.json().get("version", version + 1)
+
+    # Nộp lần 1 (thiếu minh chứng) -> NEEDS_INFO (round 1)
+    res1 = api_client.post(
         f"/api/v1/student/cases/{case_id}/submit",
         json={"expected_version": version}
     )
-    # When rounds exhausted or expired:
-    assert submit_res.status_code in [200, 409]
-    if submit_res.status_code == 200:
-        data = submit_res.json()
-        assert data["status"] in ["CLOSED_INCOMPLETE", "NEEDS_INFO"]
+    assert res1.status_code == 200
+    assert res1.json()["status"] == "NEEDS_INFO"
+    v1 = res1.json()["version"]
 
-    # When in CLOSED_INCOMPLETE:
-    closed_check = api_client.get("/api/v1/student/current").json()
-    if closed_check["case"]["status"] == "CLOSED_INCOMPLETE":
-        # Subsequent mutation should be rejected with 409 Conflict
-        rejected_put = api_client.put(
-            f"/api/v1/student/cases/{case_id}/claims/44444444-4444-4444-4444-444444444001",
-            json={"self_score": "5.00", "expected_version": closed_check["case"]["version"]}
-        )
-        assert rejected_put.status_code == 409, "Must not allow editing CLOSED_INCOMPLETE case"
+    # Nộp lần 2 (vẫn thiếu minh chứng) -> NEEDS_INFO (round 2)
+    res2 = api_client.post(
+        f"/api/v1/student/cases/{case_id}/submit",
+        json={"expected_version": v1}
+    )
+    assert res2.status_code == 200
+    assert res2.json()["status"] == "NEEDS_INFO"
+    v2 = res2.json()["version"]
+
+    # Nộp lần 3 (vượt quá max_info_rounds) -> CLOSED_INCOMPLETE
+    res3 = api_client.post(
+        f"/api/v1/student/cases/{case_id}/submit",
+        json={"expected_version": v2}
+    )
+    assert res3.status_code == 200
+    assert res3.json()["status"] == "CLOSED_INCOMPLETE"
+    v3 = res3.json()["version"]
+
+    # Thử nộp tiếp hoặc sửa điểm khi đã CLOSED_INCOMPLETE -> 409 Conflict
+    res_rejected = api_client.post(
+        f"/api/v1/student/cases/{case_id}/submit",
+        json={"expected_version": v3}
+    )
+    assert res_rejected.status_code == 409
+    assert res_rejected.json()["error"]["code"] == "INVALID_STATE"
+
+    # Sửa claim cũng bị chặn
+    crit0_id = criteria[0]["id"]
+    put_rejected = api_client.put(
+        f"/api/v1/student/cases/{case_id}/claims/{crit0_id}",
+        json={"self_score": "5.00", "expected_version": v3}
+    )
+    assert put_rejected.status_code == 409

@@ -3,6 +3,9 @@ Acceptance Test 12 - Section 9.12:
 Deadline tick chạy hai lần không gửi trùng thông báo và không tăng lượt hai lần; không nhắc SV đã phản hồi.
 """
 import os
+import subprocess
+import sys
+from datetime import datetime, timezone
 import pytest
 from tests.fixtures.client import AcceptanceTestClient
 
@@ -28,29 +31,65 @@ def test_12_deadline_tick_idempotency_and_targeted_reminders(api_client: Accepta
        - sv001 KHÔNG bị nhận thêm thông báo trùng lặp (nhờ unique dedup_key).
        - Các bộ đếm lượt (rounds) không bị tăng thêm lần thứ 2.
     """
-    # Test execution via job runner / CLI
-    import subprocess
-    import sys
+    from api.app.database import SessionLocal
+    from api.app.models.entities import Campaign, Case, User
+
+    pub_time = datetime(2026, 10, 26, 0, 0, 0, tzinfo=timezone.utc)
+    app_dl_time = datetime(2026, 10, 28, 0, 0, 0, tzinfo=timezone.utc)
+
+    # 1. Chuẩn bị dữ liệu: Đưa đợt sang PUBLISHED, sv001 PUBLISHED, sv002 ACCEPTED
+    db = SessionLocal()
+    try:
+        camp = db.query(Campaign).first()
+        camp.status = "PUBLISHED"
+        camp.published_at = pub_time
+        camp.appeal_deadline_at = app_dl_time
+        camp.reminder_after_hours = 24
+
+        u1 = db.query(User).filter(User.username == "sv001").first()
+        u2 = db.query(User).filter(User.username == "sv002").first()
+
+        c1 = db.query(Case).filter(Case.student_id == u1.id, Case.campaign_id == camp.id).first()
+        c2 = db.query(Case).filter(Case.student_id == u2.id, Case.campaign_id == camp.id).first()
+
+        c1.status = "PUBLISHED"
+        c1.published_at = pub_time
+        c1.appeal_deadline_at = app_dl_time
+
+        c2.status = "ACCEPTED"
+        c2.acceptance_source = "EXPLICIT"
+        c2.published_at = pub_time
+        c2.appeal_deadline_at = app_dl_time
+
+        db.commit()
+    finally:
+        db.close()
 
     simulated_now = "2026-10-27T10:00:00Z"
+    cmd = [sys.executable, "-m", "api.app.jobs.tick", "--now", simulated_now]
 
     # Run tick 1st time
-    cmd = [sys.executable, "-m", "api.app.jobs.tick", "--now", simulated_now]
-    p1 = subprocess.run(cmd, capture_output=True, text=True)
+    p1 = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8")
     assert p1.returncode == 0
 
-    # Verify notifications for sv001 vs sv002
-    api_client.login_as_student("sv001")
-    notifs_sv1_pass1 = api_client.get("/api/v1/notifications").json().get("items", [])
+    # Helper function đọc notifications an toàn
+    def get_user_notifs(username: str):
+        api_client.logout()
+        api_client.login_as_student(username)
+        raw = api_client.get("/api/v1/notifications").json()
+        return raw if isinstance(raw, list) else raw.get("items", [])
 
-    api_client.login_as_student("sv002")
-    notifs_sv2_pass1 = api_client.get("/api/v1/notifications").json().get("items", [])
+    # Verify notifications for sv001 vs sv002
+    notifs_sv1_pass1 = get_user_notifs("sv001")
+    notifs_sv2_pass1 = get_user_notifs("sv002")
+
+    assert any("nhắc" in n.get("title", "").lower() or "hạn" in n.get("title", "").lower() or n.get("type") == "APPEAL_REMINDER" for n in notifs_sv1_pass1)
+    assert not any("nhắc" in n.get("title", "").lower() or n.get("type") == "APPEAL_REMINDER" for n in notifs_sv2_pass1)
 
     # Run tick 2nd time (Idempotent run)
-    p2 = subprocess.run(cmd, capture_output=True, text=True)
+    p2 = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8")
     assert p2.returncode == 0
 
     # Verify sv001 notifications count does not duplicate
-    api_client.login_as_student("sv001")
-    notifs_sv1_pass2 = api_client.get("/api/v1/notifications").json().get("items", [])
+    notifs_sv1_pass2 = get_user_notifs("sv001")
     assert len(notifs_sv1_pass2) == len(notifs_sv1_pass1), "Idempotent tick must not duplicate notifications"

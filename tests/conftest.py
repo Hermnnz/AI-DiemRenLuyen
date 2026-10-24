@@ -4,6 +4,7 @@ Pytest configuration and shared fixtures for Package D tests.
 import os
 import sys
 from pathlib import Path
+from datetime import datetime, timezone
 import pytest
 
 # Ensure repo root is on sys.path
@@ -44,3 +45,53 @@ def demo_users(seed_fixtures):
 @pytest.fixture
 def api_client():
     return AcceptanceTestClient()
+
+
+@pytest.fixture(autouse=True)
+def clean_db_for_acceptance_tests(request):
+    """
+    Tự động dọn dẹp và reset cơ sở dữ liệu về trạng thái sạch cho mỗi bài kiểm thử chấp nhận E2E.
+    Đảm bảo tính cô lập (test isolation) giữa 16 kịch bản.
+    """
+    # Chỉ chạy đối với các test trong thư mục tests/e2e
+    test_path = str(request.fspath)
+    if "tests" in test_path and "e2e" in test_path:
+        from api.app.database import SessionLocal
+        from api.app.models import (
+            Campaign,
+            Case,
+            Claim,
+            EvidenceFile,
+            SupplementRequest,
+            Appeal,
+            Meeting,
+            ScoreSnapshot,
+            Notification,
+            AuditEvent,
+        )
+        from api.app.services.workflow_service import initialize_campaign_cases
+
+        db = SessionLocal()
+        try:
+            db.query(Appeal).delete()
+            db.query(ScoreSnapshot).delete()
+            db.query(SupplementRequest).delete()
+            db.query(EvidenceFile).delete()
+            db.query(Claim).delete()
+            db.query(Case).delete()
+            db.query(Meeting).delete()
+            db.query(Notification).delete()
+            db.query(AuditEvent).delete()
+
+            campaign = db.query(Campaign).first()
+            if campaign:
+                campaign.status = "OPEN"
+                campaign.opened_at = datetime(2026, 10, 25, 0, 0, 0, tzinfo=timezone.utc)
+                initialize_campaign_cases(db, campaign)
+            db.commit()
+        except Exception:
+            db.rollback()
+        finally:
+            db.close()
+
+    yield

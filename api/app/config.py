@@ -47,7 +47,31 @@ class Settings(BaseSettings):
     )
 
 
+def normalize_database_url(url: str) -> str:
+    if not url:
+        return url
+    if url.startswith("postgres://"):
+        url = "postgresql+psycopg2://" + url[len("postgres://"):]
+    elif url.startswith("postgresql://") and not url.startswith("postgresql+"):
+        url = "postgresql+psycopg2://" + url[len("postgresql://"):]
+    
+    # Auto-route Supabase direct host (which is IPv6 only) to IPv4 pooler
+    import urllib.parse
+    parsed = urllib.parse.urlsplit(url)
+    hostname = parsed.hostname or ""
+    if hostname.startswith("db.") and hostname.endswith(".supabase.co"):
+        ref = hostname.split(".")[1]
+        user = parsed.username or "postgres"
+        if "." not in user:
+            user = f"{user}.{ref}"
+        password = parsed.password or ""
+        new_netloc = f"{user}:{password}@aws-0-ap-southeast-1.pooler.supabase.com:6543"
+        url = urllib.parse.urlunsplit((parsed.scheme, new_netloc, parsed.path, parsed.query, parsed.fragment))
+    return url
+
+
 settings = Settings()
+settings.DATABASE_URL = normalize_database_url(settings.DATABASE_URL)
 
 if settings.IS_PRODUCTION:
     if settings.SECRET_KEY.startswith("dev_secret_key_") or len(settings.SECRET_KEY) < 32:

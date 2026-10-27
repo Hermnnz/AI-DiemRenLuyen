@@ -21,7 +21,7 @@ Thư mục này chứa bộ kịch bản kiểm thử giao diện người dùng
    - Theo dõi từng bước Happy Path đang chạy (`HP-01` -> `HP-06`).
    - Ngoại lệ hoặc lỗi assertion xảy ra ở bước nào thì ghi nhận `FAIL` chính xác cho bước đó (không luôn gán `HP-01`).
    - Các bước kế tiếp phía sau được ghi nhận trạng thái `BLOCKED` kèm lý do phụ thuộc bước lỗi.
-6. **Đồng bộ hóa báo cáo tự động:** Báo cáo Markdown `docs/e2e_ui_bpmn_test_report.md` được sinh từ `output/e2e_ui_bpmn/run_05/results.json`. Các ca mock được báo riêng, không cộng vào kết quả live.
+6. **Đồng bộ hóa báo cáo tự động:** Báo cáo Markdown `docs/e2e_ui_bpmn_test_report.md` được sinh từ `output/e2e_ui_bpmn/run_06/results.json`. Các ca mock được báo riêng, không cộng vào kết quả live.
 
 ---
 
@@ -33,7 +33,7 @@ web/e2e/
 └── run_e2e_bpmn.py         # Kịch bản kiểm thử E2E tự động chính
 
 output/e2e_ui_bpmn/
-└── run_05/                 # Thư mục lưu trữ kết quả và bằng chứng của lượt chạy 05
+└── run_06/                 # Thư mục lưu trữ kết quả và bằng chứng của lượt chạy 05
     ├── results.json        # Tệp kết quả máy đọc được (JSON có cấu trúc)
     ├── ENV-01_version_mismatch.png
     ├── SMK-01_student.png
@@ -123,6 +123,6 @@ python web/e2e/run_e2e_bpmn.py
 ```
 
 ### Kết quả đầu ra:
-1. Thư mục `output/e2e_ui_bpmn/run_05/` chứa ảnh chụp màn hình của live suite và các nhánh mock.
-2. Tệp máy đọc `output/e2e_ui_bpmn/run_05/results.json`.
+1. Thư mục `output/e2e_ui_bpmn/run_06/` chứa ảnh chụp màn hình của live suite và các nhánh mock.
+2. Tệp máy đọc `output/e2e_ui_bpmn/run_06/results.json`.
 3. Tệp báo cáo Markdown `docs/e2e_ui_bpmn_test_report.md` được tự động cập nhật khớp từng số liệu.

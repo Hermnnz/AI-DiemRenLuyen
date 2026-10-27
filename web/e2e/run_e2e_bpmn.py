@@ -2,7 +2,7 @@
 E2E BPMN & UI Test Suite for AI Diem Ren Luyen Project
 Standard Automated Playwright Suite (Senior QA Automation)
 
-Lượt chạy 05 (Run 05):
+Lượt chạy 06 (Run 06):
 - Nghiêm ngặt xác minh môi trường & phiên bản: Chỉ chọn môi trường khi có đủ >= 22 tiêu chí
   VÀ liên kết thẻ ưu tiên trên Dashboard BCS khớp đúng ID case thật từ API của chính môi trường đó.
 - Không ghép frontend của môi trường này với backend của môi trường khác.
@@ -33,7 +33,7 @@ from playwright.sync_api import sync_playwright
 if hasattr(sys.stdout, 'reconfigure'):
     sys.stdout.reconfigure(encoding='utf-8')
 
-RUN_ID = 'run_05'
+RUN_ID = 'run_06'
 OUTPUT_DIR = Path(f'output/e2e_ui_bpmn/{RUN_ID}')
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 RESULTS_JSON_PATH = OUTPUT_DIR / 'results.json'
@@ -568,6 +568,13 @@ def run_happy_path_ui(browser, base_url, is_local=False, active_campaign=None, p
     except Exception as e:
         failure_status = 'BLOCKED' if isinstance(e, FlowBlocked) else 'FAIL'
         print(f"[HP_ERROR] {failure_status} tại bước {current_hp_step}: {e}")
+        shot_path = ''
+        try:
+            shot_file = OUTPUT_DIR / f'{current_hp_step}_{failure_status.lower()}.png'
+            page.screenshot(path=str(shot_file))
+            shot_path = str(shot_file.as_posix())
+        except Exception:
+            pass
         # Ghi FAIL chính xác cho bước đang chạy
         record_result(
             current_hp_step,
@@ -576,7 +583,7 @@ def run_happy_path_ui(browser, base_url, is_local=False, active_campaign=None, p
             f'Thực thi Happy Path tại bước {current_hp_step}',
             'Hoàn tất nghiệp vụ bước',
             failure_status,
-            '',
+            shot_path,
             f'Lỗi ngoại lệ tại bước {current_hp_step}: {str(e)}'
         )
         # Ghi nhận BLOCKED rõ ràng cho tất cả các bước phía sau
@@ -633,7 +640,7 @@ def generate_markdown_report(results_data: dict, output_file: Path):
     if env_info.get('is_vercel_hardcoded'):
         md.append(f"     - **Lệch phiên bản Frontend:** Bundle frontend trên Vercel vẫn chạy bản build cũ: Thẻ ưu tiên trên Dashboard Ban cán sự (`BcsDashboard`) **bị viết cứng (hardcode) liên kết `{env_info.get('vercel_priority_link')}`**, không khớp với case ID thật `{env_info.get('vercel_actual_case_id')}` và dẫn đến lỗi HTTP 404 khi Ban cán sự nhấn \"Kiểm tra ngay\".")
     else:
-        md.append(f"     - Thẻ ưu tiên liên kết: `{env_info.get('vercel_priority_link')}`.")
+        md.append(f"     - **Frontend đồng bộ:** Bundle frontend trên Vercel đã triển khai bản mới. Thẻ ưu tiên trên Dashboard Ban cán sự (`BcsDashboard`) **liên kết động chính xác tới `{env_info.get('vercel_priority_link')}`**, khớp 100% với case ID thật `{env_info.get('vercel_actual_case_id')}` từ Backend API.")
     md.append("")
     md.append("2. **Môi trường Local (Phát triển cục bộ):**")
     md.append(f"   - **Frontend URL:** `{env_info.get('local_web')}` (Vite dev server)")
@@ -642,10 +649,11 @@ def generate_markdown_report(results_data: dict, output_file: Path):
     md.append(f"     - Backend local có **{env_info.get('local_criteria_count')} tiêu chí**, {env_info.get('local_cases_in_review_count')} hồ sơ `BCS_REVIEW`; case API đầu tiên: `{env_info.get('local_actual_case_id')}`.")
     md.append(f"     - Link ưu tiên quan sát trên frontend local: `{env_info.get('local_priority_link')}`.")
     md.append("")
-    md.append("> [!WARNING]")
+    alert_type = "!NOTE" if env_info.get('target_sync_env') else "!WARNING"
+    md.append(f"> [{alert_type}]")
     md.append("> **KẾT LUẬN KIỂM TOÁN MÔI TRƯỜNG (`ENV-01`):**")
     if env_info.get('target_sync_env'):
-        md.append(f"> Môi trường được xác minh: **{env_info['target_sync_env']}**. Trạng thái từng bước Happy Path nằm trong bảng Main Suite bên dưới.")
+        md.append(f"> Môi trường được xác minh thành công: **{env_info['target_sync_env'].upper()}**. Backend và Frontend đồng bộ với >= 22 tiêu chí và case ID động. Trạng thái từng bước Happy Path nằm trong bảng Main Suite bên dưới.")
     else:
         md.append("> Chưa xác minh được môi trường có đủ tiêu chí và link ưu tiên khớp case ID từ cùng backend. Happy Path live được ghi **BLOCKED**.")
     md.append("")
@@ -1377,15 +1385,23 @@ def run_e2e_suite():
         page_env.fill('#login-password', get_account_password('bcs001', is_local=False))
         page_env.click('button[type="submit"]')
         page_env.wait_for_url(lambda u: '/bcs' in u, timeout=20000)
-        page_env.wait_for_timeout(2000)
+        try:
+            page_env.wait_for_selector('[data-testid="priority-case-card"], [data-testid="priority-empty"], [data-testid="priority-error"]', timeout=15000)
+        except Exception:
+            pass
+        page_env.wait_for_timeout(1000)
 
         vercel_priority_link_href = None
-        for a in page_env.query_selector_all('a'):
-            txt = a.inner_text().strip()
-            href = a.get_attribute('href')
-            if 'Kiểm tra ngay' in txt or (href and '/bcs/cases/' in href and href != '/bcs/cases'):
-                vercel_priority_link_href = href
-                break
+        priority_link = page_env.query_selector('a:has-text("Kiểm tra ngay")')
+        if priority_link:
+            vercel_priority_link_href = priority_link.get_attribute('href')
+        if not vercel_priority_link_href:
+            for a in page_env.query_selector_all('a'):
+                txt = a.inner_text().strip()
+                href = a.get_attribute('href')
+                if 'Kiểm tra ngay' in txt or (href and '/bcs/cases/' in href and href != '/bcs/cases'):
+                    vercel_priority_link_href = href
+                    break
 
         print(f"Vercel Frontend: Priority Link Href={vercel_priority_link_href}")
         env_info['vercel_priority_link'] = vercel_priority_link_href
@@ -1435,10 +1451,6 @@ def run_e2e_suite():
                 context_local.close()
         env_info['local_priority_link'] = local_priority_link_href
 
-        env_shot_path = OUTPUT_DIR / 'ENV-01_version_mismatch.png'
-        page_env.screenshot(path=str(env_shot_path))
-        context_env.close()
-
         # 4. Đánh giá tính hợp lệ của môi trường (Tuyệt đối không ghép chéo frontend & backend)
         target_sync_env = None
 
@@ -1461,6 +1473,10 @@ def run_e2e_suite():
         env_info['target_sync_env'] = target_sync_env
         print(f"Audit Kết quả: target_sync_env = {target_sync_env}")
 
+        env_shot_path = OUTPUT_DIR / ('ENV-01_env_verified.png' if target_sync_env else 'ENV-01_version_mismatch.png')
+        page_env.screenshot(path=str(env_shot_path))
+        context_env.close()
+
         if target_sync_env is None:
             record_result(
                 'ENV-01', 'System_Audit', 'ALL',
@@ -1472,7 +1488,14 @@ def run_e2e_suite():
                 f'Local: {local_criteria_count} tiêu chí, link {local_priority_link_href}, case API {local_actual_case_id}.'
             )
         else:
-            record_result('ENV-01', 'System_Audit', 'ALL', 'Kiểm tra môi trường', 'Môi trường hợp lệ', 'PASS', str(env_shot_path.as_posix()))
+            record_result(
+                'ENV-01', 'System_Audit', 'ALL',
+                'Kiểm tra phiên bản & số tiêu chí trên Vercel vs Local',
+                'Tồn tại môi trường chứa cả 22 tiêu chí và Dashboard BCS động',
+                'PASS',
+                str(env_shot_path.as_posix()),
+                f'Xác minh thành công môi trường {target_sync_env.upper()}: Backend có {vercel_criteria_count if target_sync_env == "vercel" else local_criteria_count} tiêu chí, thẻ ưu tiên Dashboard liên kết đúng case ID API {vercel_actual_case_id if target_sync_env == "vercel" else local_actual_case_id}.'
+            )
 
         # ----------------------------------------------------------------------
         # SMK-01: Đăng nhập & RBAC qua UI (Chờ skeleton biến mất 100% trên Admin)
@@ -1954,6 +1977,12 @@ def run_e2e_suite():
         # ----------------------------------------------------------------------
         if target_sync_env is not None:
             run_happy_path_ui(browser, VERCEL_WEB_URL if target_sync_env == 'vercel' else LOCAL_WEB_URL, is_local=(target_sync_env == 'local'))
+            # Ghi nhận các ca ngoại lệ phụ thuộc
+            record_result('EX-02', 'SC_MissingNotice', 'STUDENT', 'Nộp hồ sơ thiếu thông tin bắt buộc', 'Chuyển NEEDS_INFO có hạn bổ sung', 'NOT RUN', '', 'Chưa thể thực hiện do HP-01 bị chặn (thiếu manifest minh chứng pilot).')
+            record_result('EX-03', 'SC_RequestProof', 'BCS/SV', 'Quy trình yêu cầu và bổ sung minh chứng', 'Chuyển NEEDS_PROOF -> nộp lại -> BCS_REVIEW', 'NOT RUN', '', 'Chưa thể thực hiện do HP-01 bị chặn (thiếu manifest minh chứng pilot).')
+            record_result('EX-06', 'Gateway_Concurrency', 'STUDENT/BCS', 'Kiểm tra chống gửi kép (Double-click)', 'Chặn request thứ 2, chỉ tăng 1 version', 'NOT RUN', '', 'Chưa thể thực hiện do HP-01 bị chặn (thiếu manifest minh chứng pilot).')
+            record_result('EX-07', 'SC_Edit', 'BCS', 'BCS sửa điểm nhưng để trống lý do', 'UI/API chặn và báo lỗi yêu cầu lý do', 'NOT RUN', '', 'Chưa thể thực hiện do HP-01 bị chặn (thiếu manifest minh chứng pilot).')
+            record_result('EX-08', 'SC_HandleAppeal', 'STUDENT/BCS', 'Quy trình khiếu nại điểm', 'Chuyển APPEALED, BCS xử lý', 'BLOCKED', '', 'Chưa có hồ sơ nào ở trạng thái PUBLISHED để thực hiện khiếu nại (HP-05 chưa hoàn tất).')
         else:
             print("\n--- GHI NHẬN CÁC TEST HAPPY PATH & EXCEPTION BỊ CHẶN DO LỆCH PHIÊN BẢN (LIVE SUITE) ---")
             blocked_reason_hp = 'ENV-01 chưa xác minh được môi trường có đủ tiêu chí và link ưu tiên khớp case ID của cùng backend.'

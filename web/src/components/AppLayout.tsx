@@ -218,21 +218,11 @@ export const AppLayout: React.FC<AppLayoutProps> = ({ currentRole: propRole, onR
       </header>
 
       {/* 3. Main Container Area */}
-      <div style={{ display: 'flex', flex: 1 }}>
-        {/* BCS Left Sidebar (240px) */}
+      <div className="app-layout-content">
+        {/* BCS Left Sidebar (240px trên Desktop, horizontal bar trên Mobile) */}
         {isBcs && (
-          <aside
-            style={{
-              width: 'var(--sidebar-width)',
-              backgroundColor: '#ffffff',
-              borderRight: '1px solid #e2e8f0',
-              padding: '1.25rem 0.75rem',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: '0.5rem',
-            }}
-          >
-            <div style={{ padding: '0 0.5rem 0.5rem', fontSize: '0.75rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase' }}>
+          <aside className="bcs-sidebar">
+            <div className="sidebar-title" style={{ padding: '0 0.5rem 0.5rem', fontSize: '0.75rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase' }}>
               Ban Cán Sự Lớp
             </div>
             <NavLink
@@ -296,8 +286,8 @@ export const AppLayout: React.FC<AppLayoutProps> = ({ currentRole: propRole, onR
         )}
 
         {/* Content View */}
-        <main style={{ flex: 1, padding: '1.5rem', backgroundColor: '#f8fafc' }}>
-          <div className="container">
+        <main className="app-main-content">
+          <div className="container app-content-container">
             <Outlet />
           </div>
         </main>

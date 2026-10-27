@@ -354,3 +354,93 @@
     background-position: -200% 0;
   }
 }
+
+/* Danh sách lựa chọn điểm của tiêu chí */
+.criterion-options-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin: 0.75rem 0;
+}
+
+.criterion-option-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.65rem 0.85rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background-color: #ffffff;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  user-select: none;
+}
+
+.criterion-option-card:hover {
+  border-color: #93c5fd;
+  background-color: #f8fafc;
+}
+
+.criterion-option-card.selected {
+  border-color: #2563eb;
+  background-color: #eff6ff;
+  box-shadow: 0 0 0 1px #2563eb;
+}
+
+.criterion-option-card.disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+.option-left {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  flex: 1;
+}
+
+.option-radio {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 2px solid #94a3b8;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  background-color: #ffffff;
+  transition: border-color 0.15s ease;
+}
+
+.criterion-option-card.selected .option-radio {
+  border-color: #2563eb;
+}
+
+.option-radio-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background-color: #2563eb;
+}
+
+.option-label-text {
+  font-size: 0.875rem;
+  color: #1e293b;
+  line-height: 1.4;
+}
+
+.criterion-option-card.selected .option-label-text {
+  color: #1e40af;
+  font-weight: 500;
+}
+
+.option-score-badge {
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: #1e40af;
+  background-color: #e0e7ff;
+  padding: 0.2rem 0.5rem;
+  border-radius: 4px;
+  white-space: nowrap;
+  margin-left: 0.5rem;
+}

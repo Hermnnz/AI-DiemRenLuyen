@@ -102,7 +102,7 @@ export const BcsCases: React.FC = () => {
       <div className="card" style={{ padding: '0.85rem 1.25rem' }}>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', alignItems: 'center', justifyContent: 'space-between' }}>
           {/* Search box */}
-          <div style={{ position: 'relative', minWidth: '260px', flex: 1 }}>
+          <div style={{ position: 'relative', minWidth: 'min(260px, 100%)', flex: 1 }}>
             <Search size={16} color="#94a3b8" style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)' }} />
             <input
               type="text"
@@ -115,12 +115,13 @@ export const BcsCases: React.FC = () => {
                 borderRadius: '6px',
                 border: '1px solid #cbd5e1',
                 fontSize: '0.85rem',
+                minHeight: '44px',
               }}
             />
           </div>
 
           {/* Status selector */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
             <Filter size={16} color="#64748b" />
             <select
               value={statusFilter}
@@ -132,6 +133,7 @@ export const BcsCases: React.FC = () => {
                 fontSize: '0.85rem',
                 fontWeight: 500,
                 backgroundColor: '#ffffff',
+                minHeight: '44px',
               }}
             >
               <option value="ALL">Tất cả trạng thái</option>
@@ -149,7 +151,7 @@ export const BcsCases: React.FC = () => {
                 onClick={handleReset}
                 className="btn btn-secondary"
                 title="Đặt lại bộ lọc"
-                style={{ padding: '0.45rem 0.65rem' }}
+                style={{ padding: '0.45rem 0.65rem', minHeight: '44px' }}
               >
                 <RotateCcw size={14} />
               </button>
@@ -158,9 +160,10 @@ export const BcsCases: React.FC = () => {
         </div>
       </div>
 
-      {/* Cases Table Card */}
+      {/* Cases Table & Mobile Cards Card */}
       <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
-        <div style={{ overflowX: 'auto' }}>
+        {/* Desktop Table View */}
+        <div className="bcs-cases-table-desktop">
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.875rem' }}>
             <thead>
               <tr style={{ backgroundColor: '#f8fafc', borderBottom: '1px solid #e2e8f0', textAlign: 'left', color: '#475569' }}>
@@ -186,7 +189,7 @@ export const BcsCases: React.FC = () => {
                   <td colSpan={8} style={{ padding: '2.5rem', textAlign: 'center', color: '#dc2626' }}>
                     <AlertCircle size={32} style={{ margin: '0 auto 0.5rem' }} />
                     <div style={{ fontWeight: 600 }}>{error}</div>
-                    <button onClick={loadCases} className="btn btn-primary" style={{ marginTop: '0.75rem', fontSize: '0.8rem', display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}>
+                    <button onClick={loadCases} className="btn btn-primary" style={{ marginTop: '0.75rem', fontSize: '0.8rem', display: 'inline-flex', alignItems: 'center', gap: '0.25rem', minHeight: '44px' }}>
                       <RotateCcw size={14} /> Thử lại
                     </button>
                   </td>
@@ -195,7 +198,7 @@ export const BcsCases: React.FC = () => {
                 <tr>
                   <td colSpan={8} style={{ padding: '2.5rem', textAlign: 'center', color: '#64748b' }}>
                     <div>Không tìm thấy hồ sơ nào phù hợp với điều kiện tìm kiếm.</div>
-                    <button onClick={handleReset} className="btn btn-secondary" style={{ marginTop: '0.75rem', fontSize: '0.8rem' }}>
+                    <button onClick={handleReset} className="btn btn-secondary" style={{ marginTop: '0.75rem', fontSize: '0.8rem', minHeight: '44px' }}>
                       Xóa bộ lọc
                     </button>
                   </td>
@@ -244,7 +247,7 @@ export const BcsCases: React.FC = () => {
                         <Link
                           to={`/bcs/cases/${c.id}`}
                           className={isPendingReview ? 'btn btn-primary' : 'btn btn-secondary'}
-                          style={{ padding: '0.3rem 0.75rem', fontSize: '0.8rem' }}
+                          style={{ padding: '0.35rem 0.75rem', fontSize: '0.8rem', minHeight: '38px', display: 'inline-flex', alignItems: 'center' }}
                         >
                           {isPendingReview ? 'Kiểm tra →' : 'Xem chi tiết'}
                         </Link>
@@ -255,6 +258,72 @@ export const BcsCases: React.FC = () => {
               )}
             </tbody>
           </table>
+        </div>
+
+        {/* Mobile Cards View (<= 768px) */}
+        <div className="bcs-cases-cards-mobile">
+          {loading ? (
+            <div style={{ padding: '2rem', textAlign: 'center', color: '#64748b' }}>
+              Đang tải danh sách hồ sơ...
+            </div>
+          ) : error ? (
+            <div style={{ padding: '2rem', textAlign: 'center', color: '#dc2626' }}>
+              <AlertCircle size={28} style={{ margin: '0 auto 0.5rem' }} />
+              <div style={{ fontWeight: 600 }}>{error}</div>
+              <button onClick={loadCases} className="btn btn-primary" style={{ marginTop: '0.75rem', fontSize: '0.85rem', minHeight: '44px' }}>
+                <RotateCcw size={14} /> Thử lại
+              </button>
+            </div>
+          ) : cases.length === 0 ? (
+            <div style={{ padding: '2rem', textAlign: 'center', color: '#64748b' }}>
+              <div>Không tìm thấy hồ sơ nào phù hợp.</div>
+              <button onClick={handleReset} className="btn btn-secondary" style={{ marginTop: '0.75rem', fontSize: '0.85rem', minHeight: '44px' }}>
+                Xóa bộ lọc
+              </button>
+            </div>
+          ) : (
+            cases.map((c) => {
+              const isPendingReview = c.status === 'BCS_REVIEW';
+              return (
+                <div
+                  key={c.id}
+                  className={`bcs-case-mobile-card ${isPendingReview ? 'pending-review' : ''}`}
+                >
+                  <div className="bcs-case-mobile-header">
+                    <div>
+                      <div className="bcs-case-mobile-student">{c.student_name}</div>
+                      <div style={{ fontSize: '0.8rem', color: '#64748b' }}>MSSV: {c.student_code}</div>
+                    </div>
+                    <StatusBadge status={c.status} />
+                  </div>
+                  <div className="bcs-case-mobile-scores">
+                    <div>
+                      <span style={{ color: '#64748b' }}>Tự khai: </span>
+                      <strong>{c.claimed_total || '—'}</strong>
+                    </div>
+                    <div>
+                      <span style={{ color: '#64748b' }}>BCS duyệt: </span>
+                      <strong style={{ color: c.proposed_total ? '#1e40af' : '#94a3b8' }}>
+                        {c.proposed_total || '—'}
+                      </strong>
+                    </div>
+                  </div>
+                  <div className="bcs-case-mobile-meta">
+                    <span>INFO: {c.info_round}/2 · PROOF: {c.proof_round}/2</span>
+                    <span>{new Date(c.updated_at).toLocaleDateString('vi-VN')}</span>
+                  </div>
+                  <div className="bcs-case-mobile-action">
+                    <Link
+                      to={`/bcs/cases/${c.id}`}
+                      className={isPendingReview ? 'btn btn-primary' : 'btn btn-secondary'}
+                    >
+                      {isPendingReview ? 'Kiểm tra ngay →' : 'Xem chi tiết'}
+                    </Link>
+                  </div>
+                </div>
+              );
+            })
+          )}
         </div>
 
         {/* Pagination Footer */}

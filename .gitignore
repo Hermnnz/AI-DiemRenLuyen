@@ -56,3 +56,7 @@ Thumbs.db
 .idea/
 .vercel
 .env*
+
+# Test output and evidence artifacts
+output/
+api/data/pilot_evaluation/evidence/

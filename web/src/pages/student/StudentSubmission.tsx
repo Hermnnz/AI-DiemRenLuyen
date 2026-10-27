@@ -244,7 +244,7 @@ export const StudentSubmission: React.FC = () => {
     try {
       let currentVer = data.case.version;
       for (const crit of data.criteria) {
-        if (crit.code === '4e') continue; // Bỏ qua tiêu chí hệ thống khóa
+        if (crit.code === '4e' || crit.code === 'e' || crit.rule_config?.type === 'GPA_CONVERSION') continue; // Bỏ qua tiêu chí hệ thống khóa
         const item = claimsMap[crit.id];
         if (item) {
           const res = await studentService.saveClaim(
@@ -293,12 +293,12 @@ export const StudentSubmission: React.FC = () => {
 
     for (const crit of data.criteria) {
       // Bỏ qua tiêu chí do hệ thống khóa (4e)
-      if (crit.code === '4e') continue;
+      if (crit.code === '4e' || crit.code === 'e' || crit.rule_config?.type === 'GPA_CONVERSION') continue;
 
       const claim = claimsMap[crit.id];
       if (!claim || claim.self_score === null || claim.self_score.trim() === '') {
         unScored.push(crit.code);
-        nextErrors[crit.id] = 'Hãy nhập điểm tự chấm trước khi nộp hồ sơ.';
+        nextErrors[crit.id] = 'Hãy chọn mức điểm tự chấm trước khi nộp hồ sơ.';
       } else {
         const num = Number(claim.self_score.trim());
         if (!Number.isFinite(num) || num < 0 || num > Number(crit.max_score)) {
@@ -307,9 +307,10 @@ export const StudentSubmission: React.FC = () => {
         }
       }
 
-      // Kiểm tra minh chứng bắt buộc
+      // Kiểm tra minh chứng bắt buộc: chỉ yêu cầu khi sinh viên tự chấm > 0 điểm ở tiêu chí cần minh chứng
       const originalClaim = data.claims.find((c) => c.criterion_id === crit.id);
-      if (crit.requires_evidence && (!originalClaim || !originalClaim.evidence || originalClaim.evidence.length === 0)) {
+      const scoreVal = Number(claim?.self_score || 0);
+      if (crit.requires_evidence && scoreVal > 0 && (!originalClaim || !originalClaim.evidence || originalClaim.evidence.length === 0)) {
         missingEvidence.push(crit.code);
       }
     }
@@ -337,7 +338,7 @@ export const StudentSubmission: React.FC = () => {
     try {
       let currentVer = data.case.version;
       for (const crit of data.criteria) {
-        if (crit.code === '4e') continue;
+        if (crit.code === '4e' || crit.code === 'e' || crit.rule_config?.type === 'GPA_CONVERSION') continue;
         const item = claimsMap[crit.id];
         if (item) {
           const res = await studentService.saveClaim(
@@ -649,7 +650,7 @@ export const StudentSubmission: React.FC = () => {
             <div style={{ fontSize: '1.45rem', fontWeight: 700, color: '#1e40af' }}>
               {claimedTotal}{' '}
               <span style={{ fontSize: '0.95rem', color: '#64748b', fontWeight: 400 }}>
-                / {maxTotal} điểm
+                / {maxTotal} điểm {sectionGroups.length > 1 ? '(Tối đa tự chấm 96.00đ + 4.00đ GPA)' : ''}
               </span>
             </div>
           </div>

@@ -3,8 +3,15 @@ import { Link } from 'react-router-dom';
 import { StatusBadge } from '../../components/StatusBadge';
 import { Deadline } from '../../components/Deadline';
 import { api } from '../../api/client';
-import { BcsCampaignOverview, Campaign } from '../../api/types';
+import { BcsCampaignOverview, BcsCaseListItem, Campaign } from '../../api/types';
 import { staffStore } from '../../components/staff/mockStaffData';
+import {
+  fetchPriorityCase,
+  formatPriorityTask,
+  EMPTY_PRIORITY_MESSAGE,
+  PARTIAL_ERROR_MESSAGE,
+  PRIORITY_QUEUE_ROUTE,
+} from './bcsDashboardLogic';
 import { ClipboardList, AlertCircle, CheckCircle2, Clock, Scale, ChevronRight, RotateCcw } from 'lucide-react';
 
 const isDemoMode = typeof import.meta !== 'undefined' && import.meta.env?.VITE_DEMO_MODE === 'true';
@@ -12,29 +19,57 @@ const isDemoMode = typeof import.meta !== 'undefined' && import.meta.env?.VITE_D
 export const BcsDashboard: React.FC = () => {
   const [overview, setOverview] = useState<BcsCampaignOverview | null>(isDemoMode ? staffStore.getOverview() : null);
   const [campaign, setCampaign] = useState<Campaign | null>(isDemoMode ? staffStore.getCampaign() : null);
+  const [priorityCase, setPriorityCase] = useState<BcsCaseListItem | null>(
+    isDemoMode ? staffStore.getCases('BCS_REVIEW', '', 1, 1).items[0] || null : null
+  );
+  const [priorityLoading, setPriorityLoading] = useState<boolean>(false);
+  const [priorityError, setPriorityError] = useState<string | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
   const loadData = async () => {
     setLoading(true);
     setError(null);
+    setPriorityError(null);
     try {
+      if (isDemoMode) {
+        const camp = staffStore.getCampaign();
+        const ov = staffStore.getOverview();
+        setCampaign(camp);
+        setOverview(ov);
+        const pRes = await fetchPriorityCase(camp.id, true);
+        setPriorityCase(pRes.priorityCase);
+        setPriorityError(pRes.error);
+        setPriorityLoading(false);
+        setLoading(false);
+        return;
+      }
+
       const camp = await api.get<Campaign>('/bcs/campaigns/active');
       const ov = await api.get<BcsCampaignOverview>(`/bcs/campaigns/${camp.id}/overview`);
       setCampaign(camp);
       setOverview(ov);
-    } catch (err: unknown) {
-      if (isDemoMode) {
-        setCampaign(staffStore.getCampaign());
-        setOverview(staffStore.getOverview());
+      setLoading(false);
+
+      if (ov.bcs_review_count > 0) {
+        setPriorityLoading(true);
+        const pRes = await fetchPriorityCase(camp.id, false);
+        setPriorityCase(pRes.priorityCase);
+        setPriorityError(pRes.error);
+        setPriorityLoading(false);
       } else {
-        const errObj = err as { error?: { message?: string }; message?: string };
-        const msg = errObj?.error?.message || errObj?.message || 'Không thể kết nối đến máy chủ.';
-        setError(msg);
-        setCampaign(null);
-        setOverview(null);
+        setPriorityCase(null);
+        setPriorityError(null);
+        setPriorityLoading(false);
       }
-    } finally {
+    } catch (err: unknown) {
+      const errObj = err as { error?: { message?: string }; message?: string };
+      const msg = errObj?.error?.message || errObj?.message || 'Không thể kết nối đến máy chủ.';
+      setError(msg);
+      setCampaign(null);
+      setOverview(null);
+      setPriorityCase(null);
+      setPriorityLoading(false);
       setLoading(false);
     }
   };
@@ -68,10 +103,10 @@ export const BcsDashboard: React.FC = () => {
     );
   }
 
-  const totalNeedsReview = overview.bcs_review_count;
-  const totalSupplement = overview.needs_info_count + overview.needs_proof_count;
-  const totalProposed = overview.proposed_count;
-  const totalAppeals = overview.open_appeals_count;
+  const totalNeedsReview = overview.bcs_review_count ?? 0;
+  const totalSupplement = (overview.needs_info_count ?? 0) + (overview.needs_proof_count ?? 0);
+  const totalProposed = overview.proposed_count ?? 0;
+  const totalAppeals = overview.open_appeals_count ?? 0;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
@@ -86,7 +121,7 @@ export const BcsDashboard: React.FC = () => {
         }}
       >
         <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
             <h2 style={{ fontSize: '1.35rem', fontWeight: 700, color: '#0f172a' }}>
               Bảng Điều Khiển Ban Cán Sự Lớp
             </h2>
@@ -109,7 +144,7 @@ export const BcsDashboard: React.FC = () => {
       <div
         style={{
           display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(min(220px, 100%), 1fr))',
           gap: '1rem',
         }}
       >
@@ -200,13 +235,68 @@ export const BcsDashboard: React.FC = () => {
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-          {totalNeedsReview > 0 && (
+          {/* 1. Trạng thái tải hồ sơ ưu tiên */}
+          {priorityLoading ? (
             <div
+              data-testid="priority-loading"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '0.75rem',
+                padding: '0.85rem 1rem',
+                backgroundColor: '#f8fafc',
+                borderRadius: '6px',
+                borderLeft: '4px solid #94a3b8',
+                color: '#64748b',
+                fontSize: '0.9rem',
+              }}
+            >
+              <RotateCcw size={16} className="animate-spin" />
+              <span>Đang tải công việc ưu tiên…</span>
+            </div>
+          ) : priorityError ? (
+            /* 2. Trạng thái lỗi một phần khi gọi API priority case */
+            <div
+              data-testid="priority-error"
               style={{
                 display: 'flex',
                 justifyContent: 'space-between',
                 alignItems: 'center',
-                padding: '0.75rem 1rem',
+                flexWrap: 'wrap',
+                gap: '0.75rem',
+                padding: '0.85rem 1rem',
+                backgroundColor: '#fffbeb',
+                borderRadius: '6px',
+                borderLeft: '4px solid #f59e0b',
+              }}
+            >
+              <div>
+                <div style={{ fontWeight: 600, fontSize: '0.9rem', color: '#92400e' }}>
+                  {PARTIAL_ERROR_MESSAGE}
+                </div>
+                <div style={{ fontSize: '0.8rem', color: '#b45309' }}>
+                  Có {totalNeedsReview} hồ sơ chờ kiểm tra trên hệ thống.
+                </div>
+              </div>
+              <Link
+                to={PRIORITY_QUEUE_ROUTE}
+                className="btn btn-secondary"
+                style={{ fontSize: '0.85rem', padding: '0.45rem 0.85rem', minHeight: '44px', display: 'inline-flex', alignItems: 'center' }}
+              >
+                Mở hàng chờ →
+              </Link>
+            </div>
+          ) : priorityCase ? (
+            /* 3. Trạng thái thành công: hiển thị đúng dữ liệu động */
+            <div
+              data-testid="priority-case-card"
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                flexWrap: 'wrap',
+                gap: '0.75rem',
+                padding: '0.85rem 1rem',
                 backgroundColor: '#f8fafc',
                 borderRadius: '6px',
                 borderLeft: '4px solid #1e40af',
@@ -214,22 +304,70 @@ export const BcsDashboard: React.FC = () => {
             >
               <div>
                 <div style={{ fontWeight: 600, fontSize: '0.9rem' }}>
-                  Kiểm tra minh chứng hồ sơ SV001 · Nguyễn Văn An
+                  {formatPriorityTask(priorityCase).title}
                 </div>
                 <div style={{ fontSize: '0.8rem', color: '#64748b' }}>
-                  Hồ sơ đang ở trạng thái BCS_REVIEW, sinh viên đã hoàn thành bổ sung thông tin
+                  {formatPriorityTask(priorityCase).subtitle}
                 </div>
               </div>
               <Link
-                to="/bcs/cases/55555555-5555-5555-5555-555555555001"
+                to={formatPriorityTask(priorityCase).route}
                 className="btn btn-primary"
-                style={{ fontSize: '0.8rem', padding: '0.35rem 0.75rem' }}
+                style={{ fontSize: '0.85rem', padding: '0.45rem 0.85rem', minHeight: '44px', display: 'inline-flex', alignItems: 'center' }}
               >
                 Kiểm tra ngay →
               </Link>
             </div>
+          ) : totalNeedsReview === 0 ? (
+            /* 4. Empty state rõ ràng khi không có hồ sơ cần kiểm tra ngay */
+            <div
+              data-testid="priority-empty"
+              style={{
+                padding: '0.75rem 1rem',
+                backgroundColor: '#f8fafc',
+                borderRadius: '6px',
+                borderLeft: '4px solid #10b981',
+                color: '#065f46',
+                fontSize: '0.875rem',
+              }}
+            >
+              {EMPTY_PRIORITY_MESSAGE}
+            </div>
+          ) : (
+            /* 5. Fallback khi có hồ sơ nhưng priorityCase chưa nạp được */
+            <div
+              data-testid="priority-fallback-queue"
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                flexWrap: 'wrap',
+                gap: '0.75rem',
+                padding: '0.85rem 1rem',
+                backgroundColor: '#f8fafc',
+                borderRadius: '6px',
+                borderLeft: '4px solid #1e40af',
+              }}
+            >
+              <div>
+                <div style={{ fontWeight: 600, fontSize: '0.9rem' }}>
+                  Có {totalNeedsReview} hồ sơ đang chờ Ban cán sự kiểm tra
+                </div>
+                <div style={{ fontSize: '0.8rem', color: '#64748b' }}>
+                  Vui lòng kiểm tra minh chứng và chấm duyệt điểm rèn luyện cho sinh viên
+                </div>
+              </div>
+              <Link
+                to={PRIORITY_QUEUE_ROUTE}
+                className="btn btn-primary"
+                style={{ fontSize: '0.85rem', padding: '0.45rem 0.85rem', minHeight: '44px', display: 'inline-flex', alignItems: 'center' }}
+              >
+                Vào hàng chờ kiểm tra →
+              </Link>
+            </div>
           )}
 
+          {/* Khiếu nại cần xử lý */}
           {totalAppeals > 0 && (
             <div
               style={{
@@ -244,10 +382,10 @@ export const BcsDashboard: React.FC = () => {
             >
               <div>
                 <div style={{ fontWeight: 600, fontSize: '0.9rem', color: '#991b1b' }}>
-                  Xử lý khiếu nại tiêu chí TC03 từ sinh viên SV001
+                  Có {totalAppeals} khiếu nại điểm rèn luyện đang chờ giải quyết
                 </div>
                 <div style={{ fontSize: '0.8rem', color: '#64748b' }}>
-                  Sinh viên đề nghị xem xét lại minh chứng tình nguyện để nâng từ 6.00 lên 8.00 điểm
+                  Sinh viên đã gửi đơn khiếu nại đối với kết quả dự kiến, Ban cán sự cần rà soát và phản hồi.
                 </div>
               </div>
               <Link
@@ -261,8 +399,8 @@ export const BcsDashboard: React.FC = () => {
           )}
 
           {totalNeedsReview === 0 && totalAppeals === 0 && (
-            <div style={{ textAlign: 'center', padding: '1.5rem 0', color: '#64748b', fontSize: '0.875rem' }}>
-              🎉 Hiện tại không có hồ sơ khẩn cấp cần xử lý. Bạn có thể theo dõi bảng điểm lớp hoặc kiểm tra các hồ sơ khác.
+            <div style={{ textAlign: 'center', padding: '1rem 0', color: '#64748b', fontSize: '0.875rem' }}>
+              🎉 Bạn đã xử lý xong toàn bộ công việc khẩn cấp. Bạn có thể theo dõi bảng điểm lớp hoặc kiểm tra các hồ sơ khác.
             </div>
           )}
         </div>

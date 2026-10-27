@@ -26,7 +26,12 @@ export const CriterionCard: React.FC<CriterionCardProps> = ({
   submissionError,
   evidenceWarning = false,
 }) => {
-  const isSystemLocked = criterion.code === '4e';
+  const isSystemLocked =
+    criterion.code === '4e' ||
+    criterion.code === 'e' ||
+    criterion.rule_config?.type === 'GPA_CONVERSION' ||
+    (criterion.allowed_input_roles && !criterion.allowed_input_roles.includes('STUDENT'));
+
   const isCadreCriterion = ['8a', '8b', '8c'].includes(criterion.code);
 
   const [scoreInput, setScoreInput] = useState<string>(claim.self_score ?? '');
@@ -139,7 +144,7 @@ export const CriterionCard: React.FC<CriterionCardProps> = ({
     <div className={`criterion-card ${isFlagged ? 'flagged' : ''}`} style={{ marginBottom: '1.25rem' }}>
       {/* 1. Tiêu đề và điểm tối đa */}
       <div className="criterion-header">
-        <div className="criterion-title-group">
+        <div className="criterion-title-group" style={{ flex: 1 }}>
           <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '0.4rem' }}>
             <span className="criterion-code-title">
               {criterion.code}: {criterion.title}
@@ -177,7 +182,7 @@ export const CriterionCard: React.FC<CriterionCardProps> = ({
                   gap: '0.25rem',
                 }}
               >
-                <Award size={12} /> Điểm tự khai sẽ được Ban cán sự xác minh
+                <Award size={12} /> Ban cán sự sẽ xác minh chức vụ/thành tích
               </span>
             )}
 
@@ -211,7 +216,7 @@ export const CriterionCard: React.FC<CriterionCardProps> = ({
           </div>
 
           {criterion.description && (
-            <p style={{ fontSize: '0.85rem', color: '#64748b', marginTop: '0.25rem' }}>
+            <p style={{ fontSize: '0.85rem', color: '#64748b', marginTop: '0.25rem', whiteSpace: 'pre-line' }}>
               {criterion.description}
             </p>
           )}
@@ -249,7 +254,7 @@ export const CriterionCard: React.FC<CriterionCardProps> = ({
         </div>
       )}
 
-      {/* 3. Trường hợp tiêu chí 4e (Khóa hệ thống) */}
+      {/* 3. Trường hợp tiêu chí Điểm GPA (Khóa hệ thống, sinh viên không tự chấm) */}
       {isSystemLocked ? (
         <div
           style={{
@@ -280,9 +285,9 @@ export const CriterionCard: React.FC<CriterionCardProps> = ({
                   )}
                 </div>
               ) : (
-                <div style={{ color: '#64748b', fontSize: '0.875rem' }}>
-                  <span style={{ fontWeight: 600, color: '#0f172a' }}>Chưa có dữ liệu học tập từ Nhà trường.</span>{' '}
-                  Điểm sẽ được cập nhật tự động khi Phòng Đào tạo nhập điểm GPA học kỳ (không tính là 0 điểm).
+                <div style={{ color: '#475569', fontSize: '0.875rem' }}>
+                  <span style={{ fontWeight: 600, color: '#0f172a' }}>Hệ thống tự động quy đổi từ GPA học kỳ.</span>{' '}
+                  Sinh viên không tự chấm mục này. Điểm sẽ được cập nhật tự động khi Nhà trường nhập điểm GPA.
                 </div>
               )}
             </div>
@@ -291,167 +296,225 @@ export const CriterionCard: React.FC<CriterionCardProps> = ({
           <div
             style={{
               fontSize: '0.75rem',
-              color: '#64748b',
+              color: '#475569',
               backgroundColor: '#ffffff',
               border: '1px solid #e2e8f0',
-              padding: '0.3rem 0.6rem',
+              padding: '0.35rem 0.65rem',
               borderRadius: '4px',
+              fontWeight: 500,
             }}
           >
-            Thang quy đổi: GPA 3.20–4.00 = 4đ | 2.00–3.19 = 2đ | &lt;2.00 = 0đ
+            Thang quy đổi: GPA ≥ 3.20 (4.00đ) | 2.00 ≤ GPA &lt; 3.20 (2.00đ) | GPA &lt; 2.00 (0.00đ)
           </div>
         </div>
       ) : (
         <>
-          {/* Quick Option Select Buttons (nếu có định nghĩa mức điểm) */}
-          {options && options.length > 0 && isEditable && (
-            <div style={{ marginTop: '0.6rem', marginBottom: '0.6rem' }}>
-              <div style={{ fontSize: '0.75rem', fontWeight: 600, color: '#64748b', marginBottom: '0.35rem' }}>
-                Chọn nhanh mức điểm quy định:
+          {/* 4. Giao diện tự chấm điểm */}
+          {options && options.length > 0 ? (
+            <div style={{ marginTop: '0.75rem', marginBottom: '0.75rem' }}>
+              <div style={{ fontSize: '0.8125rem', fontWeight: 600, color: '#475569', marginBottom: '0.4rem' }}>
+                Chọn mức điểm phù hợp với bạn:
               </div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem' }}>
+              <div className="criterion-options-list">
                 {options.map((opt, i) => {
+                  const optScore = typeof (opt as any).points !== 'undefined'
+                    ? Number((opt as any).points)
+                    : Number(opt.score);
                   const isSelected =
-                    scoreInput !== '' && parseFloat(scoreInput) === opt.score;
+                    scoreInput !== '' && Math.abs(parseFloat(scoreInput) - optScore) < 0.001;
+
                   return (
-                    <button
+                    <div
                       key={i}
-                      type="button"
-                      onClick={() => handleSelectOption(opt.score, opt.label)}
-                      style={{
-                        padding: '0.25rem 0.6rem',
-                        fontSize: '0.75rem',
-                        fontWeight: isSelected ? 700 : 500,
-                        backgroundColor: isSelected ? '#1e40af' : '#f1f5f9',
-                        color: isSelected ? '#ffffff' : '#334155',
-                        border: isSelected ? '1px solid #1e40af' : '1px solid #cbd5e1',
-                        borderRadius: '4px',
-                        cursor: 'pointer',
-                        transition: 'all 0.15s ease',
+                      className={`criterion-option-card ${isSelected ? 'selected' : ''} ${!isEditable ? 'disabled' : ''}`}
+                      onClick={() => handleSelectOption(optScore, opt.label)}
+                      role="radio"
+                      aria-checked={isSelected}
+                      tabIndex={isEditable ? 0 : -1}
+                      onKeyDown={(e) => {
+                        if (e.key === ' ' || e.key === 'Enter') {
+                          e.preventDefault();
+                          handleSelectOption(optScore, opt.label);
+                        }
                       }}
-                      title={opt.note || opt.label}
                     >
-                      {opt.label} ({opt.score}đ)
-                    </button>
+                      <div className="option-left">
+                        <div className="option-radio">
+                          {isSelected && <div className="option-radio-dot" />}
+                        </div>
+                        <span className="option-label-text">{opt.label}</span>
+                      </div>
+                      <span className="option-score-badge">
+                        {optScore.toFixed(2)} điểm
+                      </span>
+                    </div>
                   );
                 })}
+              </div>
+
+              {/* Hàng hiển thị điểm đã chọn & Ghi chú giải trình */}
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  flexWrap: 'wrap',
+                  gap: '0.75rem',
+                  marginTop: '0.65rem',
+                  padding: '0.55rem 0.85rem',
+                  backgroundColor: '#f8fafc',
+                  borderRadius: '6px',
+                  border: '1px solid #e2e8f0',
+                }}
+              >
+                <div style={{ fontSize: '0.875rem', color: '#334155' }}>
+                  Điểm tự chấm:{' '}
+                  <strong style={{ color: '#1e40af', fontSize: '1.05rem' }}>
+                    {scoreInput ? `${parseFloat(scoreInput).toFixed(2)}` : 'Chưa chọn'}
+                  </strong>{' '}
+                  / {criterion.max_score} điểm
+                </div>
+                <div style={{ flex: 1, minWidth: '220px' }}>
+                  <input
+                    id={`note-${criterion.id}`}
+                    type="text"
+                    className="form-input"
+                    placeholder="Ghi chú giải trình (nếu có)..."
+                    value={noteInput}
+                    onChange={handleNoteChange}
+                    disabled={!isEditable}
+                    style={{ fontSize: '0.8125rem', padding: '0.35rem 0.6rem' }}
+                  />
+                </div>
+              </div>
+              {(scoreError || submissionError) && (
+                <span className="form-error-text" role="alert" style={{ display: 'block', marginTop: '0.35rem' }}>
+                  {scoreError || submissionError}
+                </span>
+              )}
+            </div>
+          ) : (
+            /* Trường hợp tiêu chí không có options: Ô nhập số trực tiếp */
+            <div className="criterion-inputs-grid">
+              <div className="form-group">
+                <label className="form-label" htmlFor={`score-${criterion.id}`}>
+                  Điểm tự chấm
+                </label>
+                <input
+                  id={`score-${criterion.id}`}
+                  type="text"
+                  inputMode="decimal"
+                  className="form-input"
+                  placeholder="0.00"
+                  value={scoreInput}
+                  onChange={handleScoreChange}
+                  onBlur={handleScoreBlur}
+                  disabled={!isEditable}
+                  aria-invalid={Boolean(scoreError || submissionError)}
+                  aria-describedby={scoreError || submissionError ? 'score-error-' + criterion.id : undefined}
+                  style={{ fontWeight: 600, color: '#1e40af' }}
+                />
+                {(scoreError || submissionError) && (
+                  <span id={'score-error-' + criterion.id} className="form-error-text" role="alert">
+                    {scoreError || submissionError}
+                  </span>
+                )}
+              </div>
+
+              <div className="form-group">
+                <label className="form-label" htmlFor={`note-${criterion.id}`}>
+                  Ghi chú giải trình (nếu có)
+                </label>
+                <input
+                  id={`note-${criterion.id}`}
+                  type="text"
+                  className="form-input"
+                  placeholder="Ví dụ: Tham gia hoạt động X; Có chứng nhận..."
+                  value={noteInput}
+                  onChange={handleNoteChange}
+                  disabled={!isEditable}
+                />
               </div>
             </div>
           )}
 
-          {/* Ô nhập liệu Điểm tự chấm & Ghi chú */}
-          <div className="criterion-inputs-grid">
-            <div className="form-group">
-              <label className="form-label" htmlFor={`score-${criterion.id}`}>
-                Điểm tự chấm
-              </label>
-              <input
-                id={`score-${criterion.id}`}
-                type="text"
-                inputMode="decimal"
-                className="form-input"
-                placeholder="0.00"
-                value={scoreInput}
-                onChange={handleScoreChange}
-                onBlur={handleScoreBlur}
-                disabled={!isEditable}
-                aria-invalid={Boolean(scoreError || submissionError)}
-                aria-describedby={scoreError || submissionError ? 'score-error-' + criterion.id : undefined}
-                style={{ fontWeight: 600, color: '#1e40af' }}
-              />
-              {(scoreError || submissionError) && (
-                <span id={'score-error-' + criterion.id} className="form-error-text" role="alert">{scoreError || submissionError}</span>
+          {/* 5. Vùng quản lý tệp minh chứng: CHỈ HIỂN THỊ KHI TIÊU CHÍ YÊU CẦU MINH CHỨNG */}
+          {criterion.requires_evidence && (
+            <div className="evidence-section">
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ fontSize: '0.8125rem', fontWeight: 600, color: hasEvidence ? '#15803d' : '#b91c1c' }}>
+                  Tệp minh chứng ({claim.evidence?.length || 0})
+                  {!hasEvidence && parseFloat(scoreInput) > 0 && (
+                    <span style={{ marginLeft: '0.35rem', color: '#dc2626' }}>* Bắt buộc đính kèm khi chấm điểm</span>
+                  )}
+                </span>
+
+                {isEditable && (
+                  <label
+                    className="btn btn-secondary"
+                    aria-busy={isUploading}
+                    style={{
+                      padding: '0.3rem 0.75rem',
+                      fontSize: '0.8125rem',
+                      cursor: isUploading ? 'not-allowed' : 'pointer',
+                      pointerEvents: isUploading ? 'none' : 'auto',
+                    }}
+                  >
+                    {isUploading ? <Loader2 size={14} className="upload-spinner" aria-hidden="true" /> : <Upload size={14} />}
+                    <span role={isUploading ? 'status' : undefined}>{isUploading ? 'Đang tải lên...' : 'Tải minh chứng'}</span>
+                    <input
+                      type="file"
+                      className="upload-file-input"
+                      accept=".pdf,image/jpeg,image/png"
+                      onChange={handleFileSelect}
+                      disabled={isUploading}
+                    />
+                  </label>
+                )}
+              </div>
+
+              {uploadError && (
+                <div className="student-alert student-alert-danger" style={{ marginTop: '0.5rem', padding: '0.5rem 0.75rem' }}>
+                  <AlertCircle size={16} />
+                  <span>{uploadError}</span>
+                </div>
               )}
-            </div>
+              {evidenceWarning && !uploadError && (
+                <div className="student-alert student-alert-info" style={{ marginTop: '0.5rem', padding: '0.5rem 0.75rem' }}>
+                  <Info size={16} />
+                  <span>Tiêu chí này bắt buộc minh chứng. Vui lòng tải tệp lên trước khi nộp hồ sơ.</span>
+                </div>
+              )}
 
-            <div className="form-group">
-              <label className="form-label" htmlFor={`note-${criterion.id}`}>
-                Ghi chú giải trình (nếu có)
-              </label>
-              <input
-                id={`note-${criterion.id}`}
-                type="text"
-                className="form-input"
-                placeholder="Ví dụ: Tham gia hoạt động X; Có chứng nhận..."
-                value={noteInput}
-                onChange={handleNoteChange}
-                disabled={!isEditable}
-              />
-            </div>
-          </div>
-
-          {/* Vùng quản lý tệp minh chứng */}
-          <div className="evidence-section">
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <span style={{ fontSize: '0.8125rem', fontWeight: 600, color: '#475569' }}>
-                Tệp minh chứng ({claim.evidence?.length || 0})
-              </span>
-
-              {isEditable && (
-                <label
-                  className="btn btn-secondary"
-                  aria-busy={isUploading}
+              {hasEvidence ? (
+                <div className="evidence-files-list">
+                  {claim.evidence.map((file) => (
+                    <EvidenceViewer
+                      key={file.id}
+                      evidence={file}
+                      canRemove={isEditable}
+                      onRemove={(fileId) => onFileRemove(criterion.id, fileId)}
+                    />
+                  ))}
+                </div>
+              ) : (
+                <div
                   style={{
-                    padding: '0.3rem 0.75rem',
+                    padding: '0.75rem',
+                    backgroundColor: '#fff7ed',
+                    borderRadius: '6px',
+                    border: '1px dashed #fdba74',
+                    textAlign: 'center',
+                    color: '#c2410c',
                     fontSize: '0.8125rem',
-                    cursor: isUploading ? 'not-allowed' : 'pointer',
-                    pointerEvents: isUploading ? 'none' : 'auto',
+                    marginTop: '0.5rem',
                   }}
                 >
-                  {isUploading ? <Loader2 size={14} className="upload-spinner" aria-hidden="true" /> : <Upload size={14} />}
-                  <span role={isUploading ? 'status' : undefined}>{isUploading ? 'Đang tải lên...' : 'Tải minh chứng'}</span>
-                  <input
-                    type="file"
-                    className="upload-file-input"
-                    accept=".pdf,image/jpeg,image/png"
-                    onChange={handleFileSelect}
-                    disabled={isUploading}
-                  />
-                </label>
+                  Chưa có minh chứng đính kèm. Bấm &quot;Tải minh chứng&quot; để chọn tệp (PDF, JPG, PNG tối đa 10MB).
+                </div>
               )}
             </div>
-
-            {uploadError && (
-              <div className="student-alert student-alert-danger" style={{ marginTop: '0.5rem', padding: '0.5rem 0.75rem' }}>
-                <AlertCircle size={16} />
-                <span>{uploadError}</span>
-              </div>
-            )}
-            {evidenceWarning && !uploadError && (
-              <div className="student-alert student-alert-info" style={{ marginTop: '0.5rem', padding: '0.5rem 0.75rem' }}>
-                <Info size={16} />
-                <span>Tiêu chí này cần minh chứng. Tải tệp lên để tránh yêu cầu bổ sung sau khi nộp.</span>
-              </div>
-            )}
-
-            {hasEvidence ? (
-              <div className="evidence-files-list">
-                {claim.evidence.map((file) => (
-                  <EvidenceViewer
-                    key={file.id}
-                    evidence={file}
-                    canRemove={isEditable}
-                    onRemove={(fileId) => onFileRemove(criterion.id, fileId)}
-                  />
-                ))}
-              </div>
-            ) : (
-              <div
-                style={{
-                  padding: '0.75rem',
-                  backgroundColor: '#f8fafc',
-                  borderRadius: '6px',
-                  border: '1px dashed #cbd5e1',
-                  textAlign: 'center',
-                  fontSize: '0.8125rem',
-                  color: '#94a3b8',
-                  marginTop: '0.5rem',
-                }}
-              >
-                Chưa có tệp minh chứng nào được đính kèm
-              </div>
-            )}
-          </div>
+          )}
         </>
       )}
     </div>

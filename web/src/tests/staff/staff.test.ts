@@ -1,6 +1,16 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { staffStore, SEED_CRITERIA } from '../../components/staff/mockStaffData';
+import { BcsCaseListItem } from '../../api/types';
+import {
+  fetchPriorityCase,
+  formatPriorityTask,
+  EMPTY_PRIORITY_MESSAGE,
+  PARTIAL_ERROR_MESSAGE,
+  PRIORITY_QUEUE_ROUTE,
+} from '../../pages/bcs/bcsDashboardLogic';
 
 describe('Staff Module (BCS / Admin / GVCN) - Gói C Unit & Workflow Tests', () => {
   // Reset store before test suite
@@ -275,6 +285,150 @@ describe('Staff Module (BCS / Admin / GVCN) - Gói C Unit & Workflow Tests', () 
       assert.ok(csv.includes('Điểm chính thức'), 'Must contain header Điểm chính thức');
       assert.ok(csv.includes('SV001'), 'Must contain student SV001');
       assert.ok(csv.includes('FINALIZED'), 'Must contain FINALIZED status');
+    });
+  });
+
+  describe('10. BCS Dashboard Priority Task Logic & State Handling', () => {
+    // 1. Dynamic case routing and formatted data
+    it('should format priority task with dynamic UUID, student code, and student name', () => {
+      const dynamicCase: BcsCaseListItem = {
+        id: 'cf874699-de38-45b4-9a80-778c76a4093b',
+        student_code: 'sv001',
+        student_name: 'Nguyễn Văn An',
+        status: 'BCS_REVIEW',
+        claimed_total: '0.00',
+        proposed_total: null,
+        info_round: 0,
+        proof_round: 0,
+        updated_at: '2026-10-27T09:21:46.150040Z',
+      };
+
+      const task = formatPriorityTask(dynamicCase);
+      assert.equal(task.title, 'Kiểm tra minh chứng hồ sơ sv001 · Nguyễn Văn An');
+      assert.equal(task.subtitle, 'Hồ sơ đang ở trạng thái BCS_REVIEW, sinh viên đã nộp hồ sơ đánh giá');
+      assert.equal(task.route, '/bcs/cases/cf874699-de38-45b4-9a80-778c76a4093b');
+      assert.ok(!task.route.includes('55555555'), 'Must not contain hardcoded UUID');
+    });
+
+    // 2. Empty state when bcs_review_count === 0
+    it('should return null priorityCase when no BCS_REVIEW cases exist and provide clear empty message', async () => {
+      const originalFetch = globalThis.fetch;
+      globalThis.fetch = async (url) => {
+        if (typeof url === 'string' && url.includes('/cases?status=BCS_REVIEW')) {
+          return {
+            ok: true,
+            status: 200,
+            headers: new Headers({ 'Content-Type': 'application/json' }),
+            json: async () => ({
+              total: 0,
+              page: 1,
+              page_size: 1,
+              items: [],
+            }),
+          } as unknown as Response;
+        }
+        return { ok: true, status: 200, json: async () => ({}) } as unknown as Response;
+      };
+
+      try {
+        const res = await fetchPriorityCase('camp-test-empty', false);
+        assert.equal(res.priorityCase, null);
+        assert.equal(res.error, null);
+        assert.equal(EMPTY_PRIORITY_MESSAGE, 'Không có hồ sơ cần kiểm tra ngay.');
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
+    });
+
+    // 3. Partial/error state when overview has review count but API fails
+    it('should capture partial error state when API fails, without breaking dashboard', async () => {
+      const originalFetch = globalThis.fetch;
+      globalThis.fetch = async () => {
+        return {
+          ok: false,
+          status: 500,
+          statusText: 'Internal Server Error',
+          headers: new Headers({ 'Content-Type': 'application/json' }),
+          json: async () => ({
+            error: { code: 'SERVER_ERROR', message: 'Lỗi tải danh sách hồ sơ' },
+          }),
+        } as unknown as Response;
+      };
+
+      try {
+        const res = await fetchPriorityCase('camp-test-error', false);
+        assert.equal(res.priorityCase, null);
+        assert.ok(res.error, 'Error message must be populated');
+        assert.equal(PRIORITY_QUEUE_ROUTE, '/bcs/cases?status=BCS_REVIEW');
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
+    });
+
+    // 4. Source code verification: No hardcoded identifiers in BcsDashboard.tsx
+    it('should verify BcsDashboard.tsx contains no hardcoded mock UUIDs or mock student names', () => {
+      const dashboardPath = join(process.cwd(), 'src/pages/bcs/BcsDashboard.tsx');
+      const dashboardSrc = readFileSync(dashboardPath, 'utf-8');
+      assert.ok(
+        !dashboardSrc.includes('55555555-5555-5555-5555-555555555001'),
+        'Must not contain hardcoded UUID 55555555-5555-5555-5555-555555555001'
+      );
+      assert.ok(
+        !dashboardSrc.includes('SV001'),
+        'Must not contain hardcoded SV001'
+      );
+      assert.ok(
+        !dashboardSrc.includes('Nguyễn Văn An'),
+        'Must not contain hardcoded Nguyễn Văn An'
+      );
+      assert.ok(
+        !dashboardSrc.includes('TC03'),
+        'Must not contain hardcoded TC03'
+      );
+    });
+
+    // 5. No infinite loop / duplicate call check
+    it('should execute fetchPriorityCase exactly once per load without recursion or duplicates', async () => {
+      let callCount = 0;
+      const originalFetch = globalThis.fetch;
+      globalThis.fetch = async (url) => {
+        if (typeof url === 'string' && url.includes('/cases?status=BCS_REVIEW')) {
+          callCount++;
+          return {
+            ok: true,
+            status: 200,
+            headers: new Headers({ 'Content-Type': 'application/json' }),
+            json: async () => ({
+              total: 1,
+              page: 1,
+              page_size: 1,
+              items: [
+                {
+                  id: 'dynamic-uuid-1234',
+                  student_code: 'sv002',
+                  student_name: 'Trần Thị Bình',
+                  status: 'BCS_REVIEW',
+                  claimed_total: '75.00',
+                  proposed_total: null,
+                  info_round: 0,
+                  proof_round: 0,
+                  updated_at: '2026-10-27T10:00:00Z',
+                },
+              ],
+            }),
+          } as unknown as Response;
+        }
+        return { ok: true, status: 200, json: async () => ({}) } as unknown as Response;
+      };
+
+      try {
+        const res = await fetchPriorityCase('camp-single-test', false);
+        assert.equal(callCount, 1, 'API must be called exactly once');
+        assert.equal(res.priorityCase?.id, 'dynamic-uuid-1234');
+        assert.equal(res.priorityCase?.student_code, 'sv002');
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
     });
   });
 });

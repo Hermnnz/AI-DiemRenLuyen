@@ -116,6 +116,7 @@ button {
   font-weight: 500;
   border-radius: 6px;
   border: 1px solid transparent;
+  min-height: 44px;
   transition: all 0.15s ease-in-out;
 }
 
@@ -212,4 +213,175 @@ button {
 
 @keyframes ai-spin {
   to { transform: rotate(360deg); }
+}
+
+/* ==========================================================================
+   Responsive Layout & Mobile Adaptation Rules (Viewports <= 768px)
+   ========================================================================== */
+
+.app-layout-content {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  width: 100%;
+}
+
+.bcs-sidebar {
+  width: var(--sidebar-width, 240px);
+  background-color: #ffffff;
+  border-right: 1px solid var(--color-border, #e2e8f0);
+  padding: 1.25rem 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}
+
+.app-main-content {
+  flex: 1;
+  min-width: 0;
+  max-width: 100%;
+  padding: 1.5rem;
+  background-color: var(--color-bg, #f8fafc);
+  overflow-x: hidden;
+}
+
+.app-content-container {
+  max-width: var(--content-max-width, 1200px);
+  margin: 0 auto;
+  min-width: 0;
+  width: 100%;
+}
+
+/* BCS Cases Table vs Mobile Cards */
+.bcs-cases-cards-mobile {
+  display: none;
+}
+
+.bcs-cases-table-desktop {
+  display: block;
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+@media (max-width: 768px) {
+  /* Layout adjustments */
+  .app-layout-content {
+    flex-direction: column;
+    max-width: 100vw;
+    overflow-x: hidden;
+  }
+
+  .bcs-sidebar {
+    width: 100%;
+    border-right: none;
+    border-bottom: 1px solid var(--color-border, #e2e8f0);
+    padding: 0.5rem 0.75rem;
+    flex-direction: row;
+    overflow-x: auto;
+    gap: 0.5rem;
+    white-space: nowrap;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .bcs-sidebar .sidebar-title {
+    display: none;
+  }
+
+  .bcs-sidebar a {
+    min-height: 44px;
+    padding: 0.5rem 0.75rem;
+    font-size: 0.825rem;
+    display: inline-flex;
+    align-items: center;
+    border-radius: 6px;
+    flex-shrink: 0;
+  }
+
+  .app-main-content {
+    padding: 0.85rem 0.5rem;
+    max-width: 100vw;
+    overflow-x: hidden;
+  }
+
+  .app-content-container {
+    padding: 0;
+    max-width: 100%;
+  }
+
+  /* Header adjustments */
+  header {
+    padding: 0.75rem 1rem !important;
+  }
+
+  /* BCS Cases Mobile Cards View */
+  .bcs-cases-table-desktop {
+    display: none;
+  }
+
+  .bcs-cases-cards-mobile {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    width: 100%;
+    padding: 0.75rem;
+  }
+
+  .bcs-case-mobile-card {
+    background: #ffffff;
+    border: 1px solid var(--color-border, #e2e8f0);
+    border-radius: 8px;
+    padding: 0.85rem 1rem;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+    display: flex;
+    flex-direction: column;
+    gap: 0.65rem;
+  }
+
+  .bcs-case-mobile-card.pending-review {
+    border-left: 4px solid #16a34a;
+    background-color: #f0fdf4;
+  }
+
+  .bcs-case-mobile-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 0.5rem;
+  }
+
+  .bcs-case-mobile-student {
+    font-weight: 700;
+    color: var(--color-text-main, #0f172a);
+    font-size: 0.95rem;
+  }
+
+  .bcs-case-mobile-scores {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.5rem;
+    background-color: #f8fafc;
+    padding: 0.5rem 0.75rem;
+    border-radius: 6px;
+    font-size: 0.825rem;
+    border: 1px solid #f1f5f9;
+  }
+
+  .bcs-case-mobile-meta {
+    font-size: 0.775rem;
+    color: var(--color-text-muted, #64748b);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .bcs-case-mobile-action .btn {
+    width: 100%;
+    min-height: 44px;
+    font-size: 0.85rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
 }

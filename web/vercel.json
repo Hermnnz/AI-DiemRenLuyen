@@ -1,7 +1,7 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "rewrites": [
-    { "source": "/api/(.*)", "destination": "https://ai-diem-ren-luyen.vercel.app/api/$1" },
+    { "source": "/api/(.*)", "destination": "https://ai-diemrenluyen-api.vercel.app/api/$1" },
     { "source": "/(.*)", "destination": "/" }
   ]
 }

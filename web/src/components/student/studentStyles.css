@@ -221,6 +221,14 @@
   display: none;
 }
 
+.upload-spinner {
+  animation: upload-spin 1s linear infinite;
+}
+
+@keyframes upload-spin {
+  to { transform: rotate(360deg); }
+}
+
 /* Action bar cố định / gắn chân card */
 .student-action-bar {
   display: flex;

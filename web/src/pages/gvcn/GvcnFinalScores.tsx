@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { StatusBadge } from '../../components/StatusBadge';
 import { api } from '../../api/client';
-import { Campaign, CaseStatus } from '../../api/types';
+import { Campaign, CaseStatus, FinalHandoff } from '../../api/types';
 import { staffStore, GvcnScoreRecord } from '../../components/staff/mockStaffData';
+import { EmptyPanel, LoadingPanel } from '../../components/UiStates';
 import { Download, Clock, CheckCircle2, Search, FileSpreadsheet, Lock, AlertCircle, RotateCcw } from 'lucide-react';
 
 const isDemoMode = typeof import.meta !== 'undefined' && import.meta.env?.VITE_DEMO_MODE === 'true';
@@ -12,16 +13,26 @@ export const GvcnFinalScores: React.FC = () => {
   const [records, setRecords] = useState<GvcnScoreRecord[]>(isDemoMode ? staffStore.getGvcnFinalScores() : []);
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [noCampaign, setNoCampaign] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [downloading, setDownloading] = useState(false);
+  const [handoff, setHandoff] = useState<FinalHandoff | null>(null);
+  const [receiving, setReceiving] = useState(false);
 
   const loadData = async () => {
     setLoading(true);
     setErrorMsg(null);
+    setNoCampaign(false);
     try {
       const camp = await api.get<Campaign>('/gvcn/campaigns/active');
       setCampaign(camp);
       if (camp.status === 'FINALIZED') {
+        const receipt = isDemoMode ? null : await api.get<FinalHandoff>(`/gvcn/campaigns/${camp.id}/handoff`);
+        setHandoff(receipt);
+        if (!isDemoMode && receipt?.status === 'NOT_SENT') {
+          setRecords([]);
+          return;
+        }
         const csvBlob = await api.get<Blob>(`/gvcn/campaigns/${camp.id}/final-scores.csv`);
         const text = await (csvBlob instanceof Blob ? csvBlob.text() : String(csvBlob));
         const lines = text.trim().split('\n').filter((l) => l.trim().length > 0);
@@ -41,6 +52,7 @@ export const GvcnFinalScores: React.FC = () => {
         });
         setRecords(parsed);
       } else {
+        setHandoff(null);
         setRecords([]);
       }
     } catch (err: unknown) {
@@ -48,7 +60,13 @@ export const GvcnFinalScores: React.FC = () => {
         setCampaign(staffStore.getCampaign());
         setRecords(staffStore.getGvcnFinalScores());
       } else {
-        const errObj = err as { error?: { message?: string }; message?: string };
+        const errObj = err as { error?: { code?: string; message?: string }; message?: string };
+        setCampaign(null);
+        setRecords([]);
+        if (errObj?.error?.code === 'NOT_FOUND') {
+          setNoCampaign(true);
+          return;
+        }
         const msg = errObj?.error?.message || errObj?.message || 'Không thể tải bảng điểm từ máy chủ.';
         setErrorMsg(msg);
       }
@@ -62,10 +80,24 @@ export const GvcnFinalScores: React.FC = () => {
   }, []);
 
   const isFinalized = campaign?.status === 'FINALIZED';
+  const canViewFinalScores = isFinalized && (isDemoMode || (handoff !== null && handoff.status !== 'NOT_SENT'));
+
+  const handleReceive = async () => {
+    if (!campaign || receiving || handoff?.status !== 'SENT') return;
+    setReceiving(true);
+    setErrorMsg(null);
+    try {
+      setHandoff(await api.post<FinalHandoff>(`/gvcn/campaigns/${campaign.id}/handoff/receive`));
+    } catch (err: unknown) {
+      setErrorMsg((err as { error?: { message?: string } })?.error?.message || 'Không xác nhận được bàn giao. Hãy thử lại.');
+    } finally {
+      setReceiving(false);
+    }
+  };
 
   // Export CSV handler
   const handleExportCsv = async () => {
-    if (!campaign || !isFinalized) return;
+    if (!campaign || !canViewFinalScores) return;
     try {
       setDownloading(true);
       setErrorMsg(null);
@@ -95,11 +127,11 @@ export const GvcnFinalScores: React.FC = () => {
   };
 
   if (loading && !campaign) {
-    return (
-      <div className="card" style={{ padding: '2.5rem', textAlign: 'center' }}>
-        <p style={{ color: '#64748b' }}>Đang nạp thông tin đợt đánh giá...</p>
-      </div>
-    );
+    return <LoadingPanel label="Đang tải đợt đánh giá và bảng điểm" />;
+  }
+
+  if (noCampaign) {
+    return <EmptyPanel title="Chưa có đợt đánh giá" description="Khi lớp có đợt đánh giá, trạng thái và bảng điểm sẽ xuất hiện tại đây." />;
   }
 
   if (errorMsg && !campaign) {
@@ -119,7 +151,7 @@ export const GvcnFinalScores: React.FC = () => {
     );
   }
 
-  if (!campaign) return null;
+  if (!campaign) return <EmptyPanel title="Chưa có bảng điểm" description="Hãy tải lại trang để kiểm tra đợt đánh giá." />;
 
   // Filtered records
   const filteredRecords = records.filter((r) => {
@@ -169,11 +201,11 @@ export const GvcnFinalScores: React.FC = () => {
           <button
             type="button"
             data-testid="export-csv-btn"
-            disabled={!isFinalized || downloading}
+            disabled={!canViewFinalScores || downloading}
             onClick={handleExportCsv}
             className="btn btn-primary"
             style={{ fontSize: '0.875rem' }}
-            title={isFinalized ? 'Tải bảng điểm CSV chính thức' : 'Bảng điểm chưa được chốt'}
+            title={canViewFinalScores ? 'Tải bảng điểm CSV chính thức' : 'Bảng điểm chưa được BCS bàn giao'}
           >
             <Download size={16} /> {downloading ? 'Đang tạo tệp CSV...' : '📥 Xuất bảng điểm CSV'}
           </button>
@@ -235,9 +267,25 @@ export const GvcnFinalScores: React.FC = () => {
             <span>Nút xuất bảng điểm CSV sẽ tự động được kích hoạt ngay khi trạng thái chuyển sang <strong>FINALIZED</strong>.</span>
           </div>
         </div>
+      ) : !canViewFinalScores ? (
+        <div className="card" role="status" style={{ padding: '2rem', textAlign: 'center' }}>
+          <Clock size={32} style={{ margin: '0 auto 0.75rem', color: '#64748b' }} />
+          <h3>Bảng điểm đã chốt, đang chờ BCS bàn giao</h3>
+          <p>Sau khi BCS gửi, bạn sẽ xem và tải được bảng điểm chính thức tại đây.</p>
+          <button type="button" className="btn btn-secondary" onClick={() => void loadData()}>Kiểm tra lại trạng thái bàn giao</button>
+        </div>
       ) : (
         /* 3. If FINALIZED: Full read-only official score table & statistics */
         <>
+          {handoff?.status === 'SENT' && (
+            <div className="card" role="status" style={{ marginBottom: '1rem' }}>
+              <strong>BCS đã gửi bảng điểm chính thức.</strong> Hãy kiểm tra nội dung trước khi xác nhận đã nhận.
+              <button type="button" className="btn btn-primary" disabled={receiving} onClick={() => void handleReceive()} style={{ marginLeft: '0.75rem' }}>
+                {receiving ? 'Đang xác nhận...' : 'Xác nhận đã nhận bảng điểm'}
+              </button>
+            </div>
+          )}
+          {handoff?.status === 'RECEIVED' && <p role="status">Đã xác nhận nhận bảng điểm lúc {new Date(handoff.received_at || '').toLocaleString('vi-VN')}.</p>}
           {/* Statistical Summary Cards */}
           <div
             style={{

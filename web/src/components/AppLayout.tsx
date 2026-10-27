@@ -25,10 +25,11 @@ export const AppLayout: React.FC<AppLayoutProps> = ({ currentRole: propRole, onR
 
   return (
     <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
-      {/* 1. Mandatory Demo Notice Banner */}
-      <div className="demo-banner">
-        ⚠️ Dữ liệu minh họa — không dùng để ra quyết định thật | Chế độ kiểm tra thủ công (AI chưa kích hoạt)
-      </div>
+      {isDemoMode && (
+        <div className="demo-banner" role="status">
+          Dữ liệu minh họa — không dùng để ra quyết định thật.
+        </div>
+      )}
 
       {/* 2. Top Navigation Bar */}
       <header
@@ -122,6 +123,19 @@ export const AppLayout: React.FC<AppLayoutProps> = ({ currentRole: propRole, onR
                 })}
               >
                 ⚙️ Quản lý Đợt đánh giá
+              </NavLink>
+              <NavLink
+                to="/admin/ai-evaluations"
+                style={({ isActive }) => ({
+                  padding: '0.4rem 0.75rem',
+                  borderRadius: '6px',
+                  fontWeight: 500,
+                  fontSize: '0.875rem',
+                  backgroundColor: isActive ? '#eff6ff' : 'transparent',
+                  color: isActive ? '#1e40af' : '#475569',
+                })}
+              >
+                🤖 Đánh giá chất lượng AI
               </NavLink>
             </nav>
           )}

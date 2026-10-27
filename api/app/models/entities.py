@@ -1,8 +1,9 @@
 import uuid
+from decimal import Decimal
 from datetime import datetime
 from sqlalchemy import (
     Column, String, Text, Boolean, Integer, Numeric, BigInteger,
-    DateTime, ForeignKey, UniqueConstraint, JSON
+    Date, DateTime, ForeignKey, UniqueConstraint, JSON
 )
 from sqlalchemy.orm import relationship
 from api.app.database import Base
@@ -64,6 +65,8 @@ class Campaign(Base):
     class_id = Column(String(36), ForeignKey("classes.id", ondelete="CASCADE"), nullable=False)
     title = Column(String(255), nullable=False)
     term = Column(String(50), nullable=False)
+    term_start_on = Column(Date, nullable=True)
+    term_end_on = Column(Date, nullable=True)
     status = Column(String(20), default="DRAFT", nullable=False)  # DRAFT, SCHEDULED, OPEN, REVIEW, PUBLISHED, FINALIZED
     open_at = Column(DateTime, nullable=False)
     submission_deadline_at = Column(DateTime, nullable=False)
@@ -80,9 +83,11 @@ class Campaign(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
     cls = relationship("Class", back_populates="campaigns")
+    template_code = Column(String(50), default="LEGACY_DEMO", nullable=True)
     criteria = relationship("Criterion", back_populates="campaign", cascade="all, delete-orphan", order_by="Criterion.sort_order")
     cases = relationship("Case", back_populates="campaign", cascade="all, delete-orphan")
     meetings = relationship("Meeting", back_populates="campaign", cascade="all, delete-orphan")
+    final_handoff = relationship("FinalHandoff", back_populates="campaign", uselist=False, cascade="all, delete-orphan")
 
 
 class Criterion(Base):
@@ -91,10 +96,16 @@ class Criterion(Base):
     id = Column(String(36), primary_key=True, default=generate_uuid)
     campaign_id = Column(String(36), ForeignKey("campaigns.id", ondelete="CASCADE"), nullable=False)
     code = Column(String(50), nullable=False)
+    section_code = Column(String(50), nullable=True)  # DIEU_4, DIEU_5, DIEU_6, DIEU_7, DIEU_8
+    section_title = Column(String(255), nullable=True)
+    section_max_score = Column(Numeric(5, 2), nullable=True)
     title = Column(String(255), nullable=False)
     description = Column(Text, nullable=True)
     max_score = Column(Numeric(5, 2), nullable=False)
     requires_evidence = Column(Boolean, default=False, nullable=False)
+    evidence_notes = Column(Text, nullable=True)
+    allowed_input_roles = Column(JSON, nullable=True)  # e.g. ["STUDENT"], ["SYSTEM", "ADMIN"], ["STUDENT_CADRE"]
+    rule_config = Column(JSON, nullable=True)
     sort_order = Column(Integer, default=1, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
@@ -132,6 +143,7 @@ class Case(Base):
     supplement_requests = relationship("SupplementRequest", back_populates="case", cascade="all, delete-orphan")
     appeals = relationship("Appeal", back_populates="case", cascade="all, delete-orphan")
     snapshots = relationship("ScoreSnapshot", back_populates="case", cascade="all, delete-orphan")
+    ai_review_runs = relationship("AiReviewRun", back_populates="case", cascade="all, delete-orphan")
 
     __table_args__ = (
         UniqueConstraint("campaign_id", "student_id", name="uq_campaign_student_case"),
@@ -146,6 +158,7 @@ class Claim(Base):
     criterion_id = Column(String(36), ForeignKey("criteria.id", ondelete="CASCADE"), nullable=False)
     self_score = Column(Numeric(5, 2), nullable=True)
     student_note = Column(Text, nullable=True)
+    academic_gpa = Column(Numeric(4, 2), nullable=True)
     approved_score = Column(Numeric(5, 2), nullable=True)
     bcs_reason = Column(Text, nullable=True)
     reviewed_by = Column(String(36), ForeignKey("users.id"), nullable=True)
@@ -178,6 +191,108 @@ class EvidenceFile(Base):
     is_current = Column(Boolean, default=True, nullable=False)
 
     claim = relationship("Claim", back_populates="evidence_files")
+    bcs_decision = relationship("BcsEvidenceDecision", back_populates="evidence_file", uselist=False, cascade="all, delete-orphan")
+    ai_feedback = relationship("BcsAiFeedback", back_populates="evidence_file", uselist=False, cascade="all, delete-orphan")
+
+
+class BcsEvidenceDecision(Base):
+    __tablename__ = "bcs_evidence_decisions"
+
+    evidence_file_id = Column(String(36), ForeignKey("evidence_files.id", ondelete="CASCADE"), primary_key=True)
+    decision = Column(String(24), nullable=False)
+    reason = Column(Text, nullable=False)
+    reviewed_by = Column(String(36), ForeignKey("users.id"), nullable=False)
+    reviewed_at = Column(DateTime, nullable=False)
+
+    evidence_file = relationship("EvidenceFile", back_populates="bcs_decision")
+
+
+class BcsAiFeedback(Base):
+    __tablename__ = "bcs_ai_feedbacks"
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    evidence_file_id = Column(String(36), ForeignKey("evidence_files.id", ondelete="CASCADE"), nullable=False, unique=True, index=True)
+    file_sha256 = Column(String(64), nullable=False)
+    file_version_no = Column(Integer, default=1, nullable=False)
+    case_id = Column(String(36), ForeignKey("cases.id", ondelete="CASCADE"), nullable=False, index=True)
+    criterion_id = Column(String(36), ForeignKey("criteria.id", ondelete="CASCADE"), nullable=False)
+    criterion_code = Column(String(50), nullable=False)
+
+    bcs_decision = Column(String(24), nullable=False)
+    bcs_reason = Column(Text, nullable=False)
+    reviewed_by = Column(String(36), ForeignKey("users.id"), nullable=False)
+    reviewed_at = Column(DateTime, nullable=False)
+
+    ai_run_id = Column(String(36), ForeignKey("ai_review_runs.id", ondelete="SET NULL"), nullable=True)
+    ai_model = Column(String(100), nullable=True)
+    ai_prompt_version = Column(String(100), nullable=True)
+    ai_verdict = Column(String(30), nullable=True)
+    ai_reason = Column(Text, nullable=True)
+    ai_assessment_json = Column(JSON, nullable=True)
+
+    matching_status = Column(String(30), nullable=False)
+    discrepancy_status = Column(String(30), nullable=False)
+
+    ground_truth_status = Column(String(30), default="UNVERIFIED", nullable=False)
+    ground_truth_label = Column(String(30), nullable=True)
+    verification_reason = Column(Text, nullable=True)
+    verified_by = Column(String(36), ForeignKey("users.id"), nullable=True)
+    verified_at = Column(DateTime, nullable=True)
+
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    evidence_file = relationship("EvidenceFile", back_populates="ai_feedback")
+    case = relationship("Case")
+    criterion = relationship("Criterion")
+    reviewer = relationship("User", foreign_keys=[reviewed_by])
+    verifier = relationship("User", foreign_keys=[verified_by])
+    ai_run = relationship("AiReviewRun")
+
+
+class AiReviewRun(Base):
+    __tablename__ = "ai_review_runs"
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    case_id = Column(String(36), ForeignKey("cases.id", ondelete="CASCADE"), nullable=False, index=True)
+    requested_by = Column(String(36), ForeignKey("users.id"), nullable=False)
+    case_version = Column(Integer, nullable=False)
+    rubric_version = Column(String(100), nullable=False)
+    evidence_fingerprint = Column(String(64), nullable=False)
+    idempotency_key = Column(String(64), unique=True, nullable=False)
+    snapshot_json = Column(JSON, nullable=False)
+    status = Column(String(20), default="QUEUED", nullable=False)
+    attempt_count = Column(Integer, default=0, nullable=False)
+    lease_until = Column(DateTime, nullable=True)
+    provider = Column(String(100), nullable=True)
+    model = Column(String(100), nullable=True)
+    prompt_version = Column(String(50), nullable=True)
+    result_json = Column(JSON, nullable=True)
+    error_code = Column(String(100), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    started_at = Column(DateTime, nullable=True)
+    finished_at = Column(DateTime, nullable=True)
+
+    case = relationship("Case", back_populates="ai_review_runs")
+    steps = relationship("AiAgentStep", back_populates="run", cascade="all, delete-orphan", order_by="AiAgentStep.sort_order")
+
+
+class AiAgentStep(Base):
+    __tablename__ = "ai_agent_steps"
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    run_id = Column(String(36), ForeignKey("ai_review_runs.id", ondelete="CASCADE"), nullable=False, index=True)
+    kind = Column(String(30), nullable=False)  # AI_READ, AI_TRANSPARENCY
+    sort_order = Column(Integer, nullable=False)
+    status = Column(String(20), default="PENDING", nullable=False)
+    output_json = Column(JSON, nullable=True)
+    error_code = Column(String(100), nullable=True)
+    started_at = Column(DateTime, nullable=True)
+    finished_at = Column(DateTime, nullable=True)
+
+    run = relationship("AiReviewRun", back_populates="steps")
+
+    __table_args__ = (UniqueConstraint("run_id", "kind", name="uq_ai_run_step_kind"),)
 
 
 class SupplementRequest(Base):
@@ -256,6 +371,19 @@ class ScoreSnapshot(Base):
     )
 
 
+class FinalHandoff(Base):
+    __tablename__ = "final_handoffs"
+
+    campaign_id = Column(String(36), ForeignKey("campaigns.id", ondelete="CASCADE"), primary_key=True)
+    snapshot_sha256 = Column(String(64), nullable=False)
+    sent_by = Column(String(36), ForeignKey("users.id"), nullable=False)
+    sent_at = Column(DateTime, nullable=False)
+    received_by = Column(String(36), ForeignKey("users.id"), nullable=True)
+    received_at = Column(DateTime, nullable=True)
+
+    campaign = relationship("Campaign", back_populates="final_handoff")
+
+
 class Notification(Base):
     __tablename__ = "notifications"
 
@@ -292,3 +420,59 @@ class Session(Base):
     csrf_hash = Column(String(128), nullable=False)
     expires_at = Column(DateTime, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+
+class EvaluationTemplate(Base):
+    __tablename__ = "evaluation_templates"
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    code = Column(String(50), unique=True, nullable=False, index=True)
+    name = Column(String(255), nullable=False)
+    description = Column(Text, nullable=True)
+    version = Column(Integer, default=1, nullable=False)
+    total_max_score = Column(Numeric(5, 2), default=Decimal("100.00"), nullable=False)
+    is_active = Column(Boolean, default=True, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    criteria = relationship("TemplateCriterion", back_populates="template", cascade="all, delete-orphan", order_by="TemplateCriterion.sort_order")
+
+
+class TemplateCriterion(Base):
+    __tablename__ = "template_criteria"
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    template_id = Column(String(36), ForeignKey("evaluation_templates.id", ondelete="CASCADE"), nullable=False)
+    code = Column(String(50), nullable=False)
+    section_code = Column(String(50), nullable=False)
+    section_title = Column(String(255), nullable=False)
+    section_max_score = Column(Numeric(5, 2), nullable=False)
+    title = Column(String(255), nullable=False)
+    description = Column(Text, nullable=True)
+    max_score = Column(Numeric(5, 2), nullable=False)
+    requires_evidence = Column(Boolean, default=False, nullable=False)
+    evidence_notes = Column(Text, nullable=True)
+    allowed_input_roles = Column(JSON, nullable=True)
+    rule_config = Column(JSON, nullable=True)
+    sort_order = Column(Integer, default=1, nullable=False)
+
+    template = relationship("EvaluationTemplate", back_populates="criteria")
+
+    __table_args__ = (
+        UniqueConstraint("template_id", "code", name="uq_template_criterion_code"),
+    )
+
+
+class UserPosition(Base):
+    __tablename__ = "user_positions"
+
+    id = Column(String(36), primary_key=True, default=generate_uuid)
+    user_id = Column(String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    term = Column(String(50), nullable=False)
+    position_title = Column(String(100), nullable=False)
+    organization = Column(String(255), nullable=False)
+    is_confirmed = Column(Boolean, default=True, nullable=False)
+    confirmed_by = Column(String(36), ForeignKey("users.id"), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+
+    user = relationship("User", foreign_keys=[user_id])
+    confirmer = relationship("User", foreign_keys=[confirmed_by])

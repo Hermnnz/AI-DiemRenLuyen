@@ -63,6 +63,8 @@ export const LoginPage: React.FC = () => {
 
         {error && (
           <div
+            id="login-error"
+            role="alert"
             style={{
               padding: '0.75rem 1rem',
               borderRadius: '6px',
@@ -80,10 +82,12 @@ export const LoginPage: React.FC = () => {
 
         <form onSubmit={handleLogin} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
           <div>
-            <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: 500, marginBottom: '0.25rem' }}>
+            <label htmlFor="login-username" style={{ display: 'block', fontSize: '0.875rem', fontWeight: 500, marginBottom: '0.25rem' }}>
               Tên đăng nhập
             </label>
             <input
+              id="login-username"
+              aria-describedby={error ? 'login-error' : undefined}
               type="text"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
@@ -101,10 +105,12 @@ export const LoginPage: React.FC = () => {
           </div>
 
           <div>
-            <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: 500, marginBottom: '0.25rem' }}>
+            <label htmlFor="login-password" style={{ display: 'block', fontSize: '0.875rem', fontWeight: 500, marginBottom: '0.25rem' }}>
               Mật khẩu
             </label>
             <input
+              id="login-password"
+              aria-describedby={error ? 'login-error' : undefined}
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}

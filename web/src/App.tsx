@@ -14,6 +14,7 @@ import { BcsCaseDetail } from './pages/bcs/BcsCaseDetail';
 import { BcsScores } from './pages/bcs/BcsScores';
 import { BcsAppeals } from './pages/bcs/BcsAppeals';
 import { AdminCampaigns } from './pages/admin/AdminCampaigns';
+import { AdminAiEvaluation } from './pages/admin/AdminAiEvaluation';
 import { GvcnFinalScores } from './pages/gvcn/GvcnFinalScores';
 
 const RoleRedirect: React.FC = () => {
@@ -128,6 +129,14 @@ export const App: React.FC = () => {
               element={
                 <ProtectedRoute allowedRoles={['ADMIN']}>
                   <AdminCampaigns />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/admin/ai-evaluations"
+              element={
+                <ProtectedRoute allowedRoles={['ADMIN']}>
+                  <AdminAiEvaluation />
                 </ProtectedRoute>
               }
             />

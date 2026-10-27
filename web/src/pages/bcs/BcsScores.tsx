@@ -5,6 +5,7 @@ import { MeetingRecordModal } from '../../components/staff/MeetingRecordModal';
 import { api } from '../../api/client';
 import { ScoreboardResponse, ScoreboardItem, Meeting, MeetingKind, Campaign } from '../../api/types';
 import { staffStore } from '../../components/staff/mockStaffData';
+import { EmptyPanel } from '../../components/UiStates';
 import { Calendar, CheckCircle2, AlertCircle, AlertTriangle, Search, Send, RotateCcw } from 'lucide-react';
 
 const isDemoMode = typeof import.meta !== 'undefined' && import.meta.env?.VITE_DEMO_MODE === 'true';
@@ -25,6 +26,7 @@ export const BcsScores: React.FC = () => {
   );
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [noCampaign, setNoCampaign] = useState(false);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
   // Search filter
@@ -37,10 +39,13 @@ export const BcsScores: React.FC = () => {
   // Publish confirm modal state
   const [showPublishConfirm, setShowPublishConfirm] = useState(false);
   const [publishing, setPublishing] = useState(false);
+  const [draftNote, setDraftNote] = useState('');
+  const [reviewingDraft, setReviewingDraft] = useState(false);
 
   const loadScoreboard = async () => {
     setLoading(true);
     setErrorMsg(null);
+    setNoCampaign(false);
     try {
       const camp = await api.get<Campaign>('/bcs/campaigns/active');
       setCampaign(camp);
@@ -51,7 +56,13 @@ export const BcsScores: React.FC = () => {
         setScoreboard(staffStore.getScoreboard());
         setCampaign(staffStore.getCampaign());
       } else {
-        const errObj = err as { error?: { message?: string }; message?: string };
+        setCampaign(null);
+        setScoreboard(emptyScoreboard);
+        const errObj = err as { error?: { code?: string; message?: string }; message?: string };
+        if (errObj?.error?.code === 'NOT_FOUND') {
+          setNoCampaign(true);
+          return;
+        }
         const msg = errObj?.error?.message || errObj?.message || 'Không thể tải bảng điểm từ máy chủ.';
         setErrorMsg(msg);
       }
@@ -69,6 +80,7 @@ export const BcsScores: React.FC = () => {
 
   const hasBcsMeeting = !!bcsMeeting;
   const hasClassMeeting = !!classMeeting;
+  const draftReviewed = isDemoMode ? hasBcsMeeting : !!scoreboard.draft_review?.reviewed;
 
   const totalCases = scoreboard.items.length;
   const unproposedCases = scoreboard.items.filter(
@@ -80,8 +92,34 @@ export const BcsScores: React.FC = () => {
   const canPublish = scoreboard.can_publish && !isAlreadyPublishedOrFinalized;
 
   const handleOpenMeetingModal = (kind: MeetingKind) => {
+    if (kind === 'CLASS' && !draftReviewed) {
+      setErrorMsg('Hãy xác nhận bảng điểm dự thảo sau họp BCS trước khi ghi biên bản họp lớp.');
+      return;
+    }
     setSelectedMeetingKind(kind);
     setShowMeetingModal(true);
+  };
+
+  const handleConfirmDraft = async () => {
+    if (!campaign || !hasBcsMeeting || !isAllCasesReady || !scoreboard.draft_review || reviewingDraft) return;
+    if (!draftNote.trim()) {
+      setErrorMsg('Hãy ghi căn cứ đã đối chiếu trước khi xác nhận dự thảo.');
+      return;
+    }
+    setReviewingDraft(true);
+    setErrorMsg(null);
+    try {
+      await api.post(`/bcs/campaigns/${campaign.id}/review-draft`, {
+        expected_fingerprint: scoreboard.draft_review.fingerprint,
+        note: draftNote.trim(),
+      });
+      setSuccessMsg('Đã xác nhận bản điểm dự thảo. BCS có thể ghi nhận cuộc họp lớp.');
+      await loadScoreboard();
+    } catch (err: unknown) {
+      setErrorMsg((err as { error?: { message?: string } })?.error?.message || 'Không xác nhận được dự thảo. Hãy tải lại bảng điểm.');
+    } finally {
+      setReviewingDraft(false);
+    }
   };
 
   const handleRecordMeeting = async (kind: MeetingKind, heldAt: string, note: string | null) => {
@@ -135,6 +173,10 @@ export const BcsScores: React.FC = () => {
     return item.student_code.toLowerCase().includes(q) || item.student_name.toLowerCase().includes(q);
   });
 
+  if (noCampaign) {
+    return <EmptyPanel title="Chưa có đợt đánh giá" description="Bảng điểm sẽ xuất hiện sau khi lớp có đợt đánh giá và hồ sơ sinh viên." />;
+  }
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
       {/* 1. Header & Actions */}
@@ -152,10 +194,10 @@ export const BcsScores: React.FC = () => {
             <h2 style={{ fontSize: '1.35rem', fontWeight: 700, color: '#0f172a' }}>
               Bảng điểm Dự kiến Cả lớp & Công bố
             </h2>
-            <StatusBadge status={campaign ? campaign.status : 'DRAFT'} />
+            {campaign && <StatusBadge status={campaign.status} />}
           </div>
           <p style={{ color: '#64748b', fontSize: '0.875rem' }}>
-            Đợt: {campaign ? campaign.title : '—'} | Lớp: LOP-DEMO | Học kỳ: {campaign ? campaign.term : '—'}
+            Đợt: {campaign ? campaign.title : '—'} | Học kỳ: {campaign ? campaign.term : '—'}
           </p>
         </div>
 
@@ -247,8 +289,32 @@ export const BcsScores: React.FC = () => {
                 <li>Còn <strong>{unproposedCases}</strong> hồ sơ chưa hoàn tất kiểm tra sang trạng thái PROPOSED.</li>
               )}
               {!hasBcsMeeting && <li>Chưa ghi nhận biên bản <strong>Họp Ban cán sự</strong>.</li>}
+              {hasBcsMeeting && !draftReviewed && <li>BCS chưa xác nhận bảng điểm dự thảo sau họp.</li>}
               {!hasClassMeeting && <li>Chưa ghi nhận biên bản <strong>Họp toàn thể Lớp</strong>.</li>}
             </ul>
+          )}
+        </div>
+      )}
+
+      {!isAlreadyPublishedOrFinalized && hasBcsMeeting && !hasClassMeeting && (
+        <div className="card" style={{ display: 'grid', gap: '0.7rem' }}>
+          <h3 style={{ fontSize: '1rem', fontWeight: 700 }}>Rà soát bảng điểm dự thảo sau họp BCS</h3>
+          <p style={{ color: '#475569', fontSize: '0.875rem' }}>
+            Kiểm tra điểm từng sinh viên trong bảng dưới đây. Nếu cần sửa, mở hồ sơ để điều chỉnh và ghi căn cứ. Xác nhận bản hiện hành trước khi họp lớp.
+          </p>
+          {draftReviewed ? (
+            <p role="status" style={{ color: '#166534' }}>Đã xác nhận dự thảo lúc {new Date(scoreboard.draft_review?.reviewed_at || '').toLocaleString('vi-VN')}.</p>
+          ) : (
+            <>
+              <label htmlFor="draft-review-note">Căn cứ rà soát</label>
+              <textarea id="draft-review-note" rows={2} value={draftNote} onChange={(event) => setDraftNote(event.target.value)}
+                placeholder="Ví dụ: Đã đối chiếu điểm và minh chứng với biên bản họp BCS" disabled={!isAllCasesReady || reviewingDraft} />
+              <button type="button" className="btn btn-primary" disabled={!isAllCasesReady || !draftNote.trim() || reviewingDraft || isDemoMode}
+                onClick={() => void handleConfirmDraft()}>
+                {reviewingDraft ? 'Đang xác nhận...' : 'Xác nhận bảng điểm dự thảo'}
+              </button>
+              {!isAllCasesReady && <p role="status">Cần hoàn tất điểm dự kiến của mọi hồ sơ trước khi rà soát.</p>}
+            </>
           )}
         </div>
       )}
@@ -371,6 +437,7 @@ export const BcsScores: React.FC = () => {
               type="button"
               data-testid="record-class-meeting"
               onClick={() => handleOpenMeetingModal('CLASS')}
+              disabled={!draftReviewed}
               className="btn btn-secondary"
               style={{ padding: '0.3rem 0.6rem', fontSize: '0.775rem', alignSelf: 'flex-start', marginTop: '0.5rem' }}
             >
@@ -423,13 +490,17 @@ export const BcsScores: React.FC = () => {
               {loading ? (
                 <tr>
                   <td colSpan={6} style={{ padding: '2rem', textAlign: 'center', color: '#64748b' }}>
-                    Đang tải dữ liệu bảng điểm...
+                    <span className="sr-only">Đang tải bảng điểm</span>
+                    <span className="ui-skeleton ui-skeleton-line" aria-hidden="true" />
+                    <span className="ui-skeleton ui-skeleton-line short" aria-hidden="true" />
                   </td>
                 </tr>
               ) : filteredItems.length === 0 ? (
                 <tr>
                   <td colSpan={6} style={{ padding: '2rem', textAlign: 'center', color: '#64748b' }}>
-                    Không có sinh viên nào phù hợp với tìm kiếm.
+                    {scoreboard.items.length === 0
+                      ? 'Chưa có hồ sơ trong bảng điểm của đợt này.'
+                      : 'Không tìm thấy sinh viên phù hợp. Hãy thử mã hoặc tên khác.'}
                   </td>
                 </tr>
               ) : (

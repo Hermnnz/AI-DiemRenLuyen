@@ -40,10 +40,27 @@ def _setup_published_campaign(client, seed_data):
             resp_rev = client.put(f"/api/v1/bcs/cases/{c.id}/claims/{crit.id}/review", json={"approved_score": "8.00", "reason": None, "expected_version": c.version}, cookies=auth_bcs["cookies"], headers=auth_bcs["headers"])
             c.version = resp_rev.json()["version"]
 
+        detail = client.get(f"/api/v1/bcs/cases/{c.id}", cookies=auth_bcs["cookies"]).json()
+        for evidence_id in detail["evidence_review_required_ids"]:
+            resp_decision = client.put(
+                f"/api/v1/bcs/cases/{c.id}/evidence/{evidence_id}/decision",
+                json={"decision": "ACCEPT", "reason": "Đã đối chiếu minh chứng trong hồ sơ", "expected_version": c.version},
+                cookies=auth_bcs["cookies"], headers=auth_bcs["headers"],
+            )
+            assert resp_decision.status_code == 200
+            c.version = resp_decision.json()["version"]
+
         resp_comp = client.post(f"/api/v1/bcs/cases/{c.id}/complete-review", json={"expected_version": c.version}, cookies=auth_bcs["cookies"], headers=auth_bcs["headers"])
         c.version = resp_comp.json()["version"]
 
     client.post(f"/api/v1/bcs/campaigns/{camp.id}/meetings", json={"kind": "BCS", "held_at": "2026-10-25T14:00:00Z"}, cookies=auth_bcs["cookies"], headers=auth_bcs["headers"])
+    board = client.get(f"/api/v1/bcs/campaigns/{camp.id}/scoreboard", cookies=auth_bcs["cookies"]).json()
+    review = client.post(
+        f"/api/v1/bcs/campaigns/{camp.id}/review-draft",
+        json={"expected_fingerprint": board["draft_review"]["fingerprint"], "note": "Đã đối chiếu bảng điểm sau họp BCS"},
+        cookies=auth_bcs["cookies"], headers=auth_bcs["headers"],
+    )
+    assert review.status_code == 200
     client.post(f"/api/v1/bcs/campaigns/{camp.id}/meetings", json={"kind": "CLASS", "held_at": "2026-10-26T14:00:00Z"}, cookies=auth_bcs["cookies"], headers=auth_bcs["headers"])
     client.post(f"/api/v1/bcs/campaigns/{camp.id}/publish", cookies=auth_bcs["cookies"], headers=auth_bcs["headers"])
 
@@ -150,7 +167,19 @@ def test_acceptance_criteria_14_finalize_gate_and_gvcn_csv(client, seed_data):
     assert resp_finalize.status_code == 200
     assert resp_finalize.json()["status"] == "FINALIZED"
 
-    # Now GVCN downloads final scores CSV -> 200 OK with CSV headers & content
+    # Finalization alone does not hand the score sheet to the GVCN.
+    before_handoff = client.get(f"/api/v1/gvcn/campaigns/{camp.id}/final-scores.csv", cookies=auth_gvcn["cookies"])
+    assert before_handoff.status_code == 409
+    assert before_handoff.json()["error"]["code"] == "HANDOFF_NOT_SENT"
+    sent = client.post(f"/api/v1/bcs/campaigns/{camp.id}/handoff", cookies=auth_bcs["cookies"], headers=auth_bcs["headers"])
+    assert sent.status_code == 200
+    assert sent.json()["status"] == "SENT"
+    assert len(sent.json()["snapshot_sha256"]) == 64
+    resent = client.post(f"/api/v1/bcs/campaigns/{camp.id}/handoff", cookies=auth_bcs["cookies"], headers=auth_bcs["headers"])
+    assert resent.status_code == 200
+    assert resent.json()["sent_at"] == sent.json()["sent_at"]
+
+    # GVCN downloads final scores CSV and confirms receipt.
     resp_gvcn_csv = client.get(f"/api/v1/gvcn/campaigns/{camp.id}/final-scores.csv", cookies=auth_gvcn["cookies"])
     assert resp_gvcn_csv.status_code == 200
     assert "text/csv" in resp_gvcn_csv.headers["content-type"]
@@ -160,3 +189,6 @@ def test_acceptance_criteria_14_finalize_gate_and_gvcn_csv(client, seed_data):
     assert "sv002" in text
     assert "sv003" in text
     assert "FINALIZED" in text
+    received = client.post(f"/api/v1/gvcn/campaigns/{camp.id}/handoff/receive", cookies=auth_gvcn["cookies"], headers=auth_gvcn["headers"])
+    assert received.status_code == 200
+    assert received.json()["status"] == "RECEIVED"

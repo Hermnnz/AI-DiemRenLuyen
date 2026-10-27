@@ -25,6 +25,7 @@ from api.app.routes import (
     files,
     notifications,
     internal,
+    ai_reviews,
 )
 
 app = FastAPI(
@@ -100,3 +101,4 @@ app.include_router(gvcn.router, prefix=settings.API_V1_PREFIX)
 app.include_router(files.router, prefix=settings.API_V1_PREFIX)
 app.include_router(notifications.router, prefix=settings.API_V1_PREFIX)
 app.include_router(internal.router, prefix=settings.API_V1_PREFIX)
+app.include_router(ai_reviews.router, prefix=settings.API_V1_PREFIX)

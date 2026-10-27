@@ -45,6 +45,8 @@ def get_file(
                 code="FORBIDDEN",
                 message="Bạn không có quyền truy cập minh chứng của lớp khác."
             )
+    elif user.role == "ADMIN":
+        pass
     else:
         raise AppError(
             status_code=403,

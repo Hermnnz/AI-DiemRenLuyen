@@ -8,6 +8,7 @@ from api.app.models.entities import (
     Case,
     Claim,
     EvidenceFile,
+    BcsEvidenceDecision,
     SupplementRequest,
     Meeting,
     Appeal,
@@ -20,6 +21,8 @@ from api.app.schemas.common import AppError, format_score
 from api.app.services.audit_service import log_audit
 from api.app.services.notification_service import send_notification
 from api.app.services.scoring_service import parse_score, validate_score_bounds, sum_scores
+from api.app.services.evidence_decision_service import required_evidence_file_ids
+from api.app.services.draft_review_service import draft_review_status
 
 
 def initialize_campaign_cases(db: Session, campaign: Campaign):
@@ -145,14 +148,20 @@ def submit_student_case(
         crit = criteria_map.get(cl.criterion_id)
         if not crit:
             continue
+        is_system_criterion = crit.code == "4e" or (crit.allowed_input_roles and "STUDENT" not in crit.allowed_input_roles)
         if cl.self_score is None:
-            raise AppError(
-                status_code=422,
-                code="MISSING_SELF_SCORE",
-                message=f"Vui lòng tự chấm điểm cho tiêu chí {crit.code} - {crit.title} trước khi nộp."
-            )
-        validate_score_bounds(cl.self_score, crit.max_score, field_name=crit.code)
-        claimed_scores.append(cl.self_score)
+            if is_system_criterion:
+                # 4e do Nhà trường quy đổi, sinh viên chưa có điểm vẫn cho phép nộp
+                pass
+            else:
+                raise AppError(
+                    status_code=422,
+                    code="MISSING_SELF_SCORE",
+                    message=f"Vui lòng tự chấm điểm cho tiêu chí {crit.code} - {crit.title} trước khi nộp."
+                )
+        else:
+            validate_score_bounds(cl.self_score, crit.max_score, field_name=crit.code)
+            claimed_scores.append(cl.self_score)
 
         if crit.requires_evidence:
             has_evidence = (
@@ -259,6 +268,22 @@ def complete_bcs_case_review(
         for c in db.query(Criterion).filter(Criterion.campaign_id == campaign.id).all()
     }
 
+    required_files = required_evidence_file_ids(db, case)
+    decisions = {
+        item.evidence_file_id: item.decision
+        for item in db.query(BcsEvidenceDecision)
+        .filter(BcsEvidenceDecision.evidence_file_id.in_(required_files)).all()
+    } if required_files else {}
+    unresolved = required_files - {file_id for file_id, decision in decisions.items()
+                                   if decision in {"ACCEPT", "REJECT_ITEM"}}
+    if unresolved:
+        raise AppError(
+            status_code=422,
+            code="EVIDENCE_DECISION_REQUIRED",
+            message=f"Còn {len(unresolved)} minh chứng được gắn cờ hoặc đã phân tích AI chưa có quyết định cuối cùng của BCS. Hãy chấp nhận hoặc từ chối từng tệp trước khi hoàn tất.",
+            fields={"evidence_file_ids": ",".join(sorted(unresolved))},
+        )
+
     approved_scores = []
     for cl in claims:
         crit = criteria_map.get(cl.criterion_id)
@@ -282,7 +307,32 @@ def complete_bcs_case_review(
                 )
         approved_scores.append(cl.approved_score)
 
+    # Validate section caps if configured
+    section_scores_map = {}
+    for cl in claims:
+        crit = criteria_map.get(cl.criterion_id)
+        if crit and crit.section_code and crit.section_max_score:
+            section_scores_map.setdefault(crit.section_code, {"max": crit.section_max_score, "title": crit.section_title, "scores": []})
+            section_scores_map[crit.section_code]["scores"].append(cl.approved_score)
+
+    for sec_code, sec_info in section_scores_map.items():
+        sec_sum = sum_scores(sec_info["scores"])
+        if sec_sum > sec_info["max"]:
+            raise AppError(
+                status_code=422,
+                code="SECTION_SCORE_OUT_OF_BOUNDS",
+                message=f"Tổng điểm duyệt của mục '{sec_info['title'] or sec_code}' đạt {sec_sum:.2f}, vượt quá mức tối đa {sec_info['max']:.2f} điểm.",
+                fields={sec_code: f"Tối đa {sec_info['max']:.2f} điểm"}
+            )
+
     case.proposed_total = sum_scores(approved_scores)
+    if case.proposed_total > Decimal("100.00") and any(c.section_code for c in criteria_map.values()):
+        raise AppError(
+            status_code=422,
+            code="TOTAL_SCORE_OUT_OF_BOUNDS",
+            message=f"Tổng điểm đề xuất của lớp ({case.proposed_total:.2f}) không được vượt quá 100.00 điểm.",
+            fields={"proposed_total": "Tối đa 100.00 điểm"}
+        )
     case.status = "PROPOSED"
     case.version += 1
 
@@ -327,6 +377,8 @@ def publish_campaign(
             code="MEETINGS_INCOMPLETE",
             message="Chưa đủ biên bản họp BCS và họp Lớp để công bố kết quả."
         )
+    if not draft_review_status(db, campaign)["reviewed"]:
+        raise AppError(status_code=422, code="DRAFT_REVIEW_REQUIRED", message="BCS chưa xác nhận bản dự thảo hiện hành sau họp BCS.")
 
     # Check all cases in campaign: must be PROPOSED or CLOSED_*
     cases = db.query(Case).filter(Case.campaign_id == campaign.id).all()

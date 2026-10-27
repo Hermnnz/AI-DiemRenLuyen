@@ -1,5 +1,6 @@
 import os
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from sqlalchemy.engine import make_url
 from typing import List
 
 
@@ -27,6 +28,11 @@ class Settings(BaseSettings):
     SUPABASE_BUCKET: str = os.getenv("SUPABASE_BUCKET", "evidence")
     IS_PRODUCTION: bool = os.getenv("IS_PRODUCTION", "false").lower() == "true"
     CRON_SECRET: str = os.getenv("CRON_SECRET", "")
+    GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
+    GEMINI_MODEL: str = os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite")
+    AI_READ_ENABLED: bool = os.getenv("AI_READ_ENABLED", "false").lower() == "true"
+    GEMINI_TRANSPARENCY_MODEL: str = os.getenv("GEMINI_TRANSPARENCY_MODEL", "gemini-3.6-flash")
+    AI_TRANSPARENCY_ENABLED: bool = os.getenv("AI_TRANSPARENCY_ENABLED", "false").lower() == "true"
     
     # Server & CORS
     API_HOST: str = os.getenv("API_HOST", "0.0.0.0")
@@ -54,31 +60,19 @@ def normalize_database_url(url: str) -> str:
         url = "postgresql+psycopg2://" + url[len("postgres://"):]
     elif url.startswith("postgresql://") and not url.startswith("postgresql+"):
         url = "postgresql+psycopg2://" + url[len("postgresql://"):]
-    
-    # Auto-route Supabase direct host (which is IPv6 only) to IPv4 pooler
-    import urllib.parse
-    parsed = urllib.parse.urlsplit(url)
-    hostname = parsed.hostname or ""
-    if hostname.startswith("db.") and hostname.endswith(".supabase.co"):
-        ref = hostname.split(".")[1]
-        user = parsed.username or "postgres"
-        if "." not in user:
-            user = f"{user}.{ref}"
-        password = parsed.password or ""
-        new_netloc = f"{user}:{password}@aws-0-ap-southeast-1.pooler.supabase.com:6543"
-        url = urllib.parse.urlunsplit((parsed.scheme, new_netloc, parsed.path, parsed.query, parsed.fragment))
     return url
 
 
 settings = Settings()
-if os.getenv("VERCEL") and ("localhost" in settings.DATABASE_URL or "127.0.0.1" in settings.DATABASE_URL):
-    settings.DATABASE_URL = "postgresql+psycopg2://postgres.qyqyktxjoywxaijdpoit:motvannamsau@aws-0-ap-southeast-1.pooler.supabase.com:6543/postgres"
 settings.DATABASE_URL = normalize_database_url(settings.DATABASE_URL)
 
-if settings.IS_PRODUCTION:
+if settings.IS_PRODUCTION or os.getenv("VERCEL"):
     if settings.SECRET_KEY.startswith("dev_secret_key_") or len(settings.SECRET_KEY) < 32:
         raise RuntimeError("Production SECRET_KEY is missing or too short")
     if "localhost" in settings.DATABASE_URL or "127.0.0.1" in settings.DATABASE_URL:
         raise RuntimeError("Production DATABASE_URL must use the hosted database")
+    db_url = make_url(settings.DATABASE_URL)
+    if db_url.host and db_url.host.endswith(".pooler.supabase.com") and "." not in (db_url.username or ""):
+        raise RuntimeError("Supabase pooler DATABASE_URL must use the username copied from Supabase Connect")
     if settings.STORAGE_BACKEND != "supabase" or not settings.SUPABASE_SECRET_KEY:
         raise RuntimeError("Production Supabase Storage configuration is missing")

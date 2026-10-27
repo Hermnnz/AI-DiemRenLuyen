@@ -46,12 +46,27 @@ from api.app.services.auth_service import require_roles, verify_csrf
 from api.app.services.file_service import ALLOWED_MIME_TYPES, save_upload_file
 from api.app.services.remote_storage import create_upload_url, download_object, remote_storage_enabled
 from api.app.services.upload_ticket import issue_upload_ticket, verify_upload_ticket
-from api.app.services.scoring_service import parse_score, validate_score_bounds, sum_scores
+from api.app.services.scoring_service import parse_score, validate_score_bounds, validate_criterion_levels, sum_scores
 from api.app.services.workflow_service import submit_student_case
 from api.app.services.audit_service import log_audit
 from api.app.services.notification_service import send_notification
+from api.app.services.rule_check_service import evaluate_case_rules
+from api.app.schemas.ai_reviews import RuleCheckResponse
 
 router = APIRouter(prefix="/student", tags=["Student"])
+
+
+@router.get("/cases/{caseId}/rule-checks", response_model=RuleCheckResponse)
+def get_student_rule_checks(
+    caseId: str,
+    auth_data: tuple[User, list[str]] = Depends(require_roles("STUDENT")),
+    db: Session = Depends(get_db),
+):
+    user, _ = auth_data
+    case = db.query(Case).filter(Case.id == caseId, Case.student_id == user.id).first()
+    if not case:
+        raise AppError(status_code=404, code="NOT_FOUND", message="Không tìm thấy hồ sơ.")
+    return evaluate_case_rules(db, case)
 
 
 class UploadTicketRequest(BaseModel):
@@ -112,6 +127,7 @@ def _build_claim_schema(cl: Claim, crit: Criterion, is_published_or_above: bool)
         criterion_id=cl.criterion_id,
         self_score=format_score(cl.self_score),
         student_note=cl.student_note,
+        academic_gpa=format_score(cl.academic_gpa) if cl.academic_gpa is not None else None,
         approved_score=approved_score,
         bcs_reason=bcs_reason,
         evidence=evidence_schemas,
@@ -182,10 +198,16 @@ def get_student_current(
             id=c.id,
             campaign_id=c.campaign_id,
             code=c.code,
+            section_code=c.section_code,
+            section_title=c.section_title,
+            section_max_score=format_score(c.section_max_score) if c.section_max_score is not None else None,
             title=c.title,
             description=c.description,
             max_score=format_score(c.max_score),
             requires_evidence=c.requires_evidence,
+            evidence_notes=c.evidence_notes,
+            allowed_input_roles=c.allowed_input_roles,
+            rule_config=c.rule_config,
             sort_order=c.sort_order,
         )
         for c in criteria
@@ -252,6 +274,7 @@ def get_student_current(
         title=campaign.title,
         term=campaign.term,
         status=campaign.status,
+        template_code=campaign.template_code or "LEGACY_DEMO",
         open_at=format_datetime(campaign.open_at),
         submission_deadline_at=format_datetime(campaign.submission_deadline_at),
         supplement_period_hours=campaign.supplement_period_hours,
@@ -316,8 +339,18 @@ def update_claim(
     if not crit:
         raise AppError(status_code=404, code="NOT_FOUND", message="Không tìm thấy tiêu chí đánh giá.")
 
+    # 1. Khóa mục 4e với sinh viên (chỉ hệ thống / admin quy đổi)
+    if crit.code == "4e" or (crit.allowed_input_roles and set(crit.allowed_input_roles) <= {"SYSTEM", "ADMIN"}):
+        raise AppError(
+            status_code=403,
+            code="FORBIDDEN_CRITERION_INPUT",
+            message="Mục 4e (Kết quả học tập) do Nhà trường tự động quy đổi, sinh viên không được tự nhập.",
+            fields={"4e": "Sinh viên không được quyền nhập điểm này"}
+        )
+
     parsed_score = parse_score(payload.self_score)
     validate_score_bounds(parsed_score, crit.max_score, field_name=crit.code)
+    validate_criterion_levels(crit.code, parsed_score)
 
     claim = db.query(Claim).filter(Claim.case_id == case.id, Claim.criterion_id == crit.id).first()
     if not claim:
@@ -332,11 +365,44 @@ def update_claim(
         claim.self_score = parsed_score
         claim.student_note = payload.student_note
 
-    # Update case claimed_total
+    # Update case claimed_total and validate section & total caps
     all_claims = db.query(Claim).filter(Claim.case_id == case.id).all()
     scores = [cl.self_score for cl in all_claims if cl.id != (claim.id or "")]
     scores.append(parsed_score)
-    case.claimed_total = sum_scores(scores)
+    calculated_total = sum_scores(scores)
+
+    # Validate section cap if defined
+    if crit.section_code and crit.section_max_score:
+        section_criteria_ids = {
+            c.id for c in db.query(Criterion).filter(
+                Criterion.campaign_id == case.campaign_id,
+                Criterion.section_code == crit.section_code
+            ).all()
+        }
+        section_scores = [
+            parsed_score if cl.criterion_id == crit.id else cl.self_score
+            for cl in all_claims if cl.criterion_id in section_criteria_ids
+        ]
+        if not any(cl.criterion_id == crit.id for cl in all_claims) and crit.id in section_criteria_ids:
+            section_scores.append(parsed_score)
+        section_total = sum_scores(section_scores)
+        if section_total > crit.section_max_score:
+            raise AppError(
+                status_code=422,
+                code="SECTION_SCORE_OUT_OF_BOUNDS",
+                message=f"Tổng điểm của mục '{crit.section_title or crit.section_code}' đạt {section_total:.2f}, vượt quá mức tối đa cho phép ({crit.section_max_score:.2f} điểm).",
+                fields={crit.section_code: f"Tối đa {crit.section_max_score:.2f} điểm"}
+            )
+
+    if calculated_total > Decimal("100.00") and crit.section_code is not None:
+        raise AppError(
+            status_code=422,
+            code="TOTAL_SCORE_OUT_OF_BOUNDS",
+            message=f"Tổng điểm tự khai ({calculated_total:.2f}) không được vượt quá 100.00 điểm.",
+            fields={"total": "Tối đa 100.00 điểm"}
+        )
+
+    case.claimed_total = calculated_total
     case.version += 1
     case.updated_at = datetime.now(timezone.utc)
     db.commit()

@@ -28,6 +28,7 @@ export const StudentAppeal: React.FC = () => {
   const [showConfirm, setShowConfirm] = useState<boolean>(false);
   const [validationError, setValidationError] = useState<string | null>(null);
   const [feedbackMessage, setFeedbackMessage] = useState<{ type: 'success' | 'danger' | 'info'; text: string } | null>(null);
+  const [now, setNow] = useState(Date.now());
 
   const loadData = useCallback(async () => {
     try {
@@ -66,11 +67,27 @@ export const StudentAppeal: React.FC = () => {
     loadData();
   }, [loadData]);
 
+  useEffect(() => {
+    const deadline = data?.case.appeal_deadline_at;
+    if (data?.case.status !== 'PUBLISHED' || !deadline) return;
+    const remaining = new Date(deadline).getTime() - Date.now();
+    if (remaining <= 0) {
+      setNow(Date.now());
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      setNow(Date.now());
+      setShowConfirm(false);
+      void loadData();
+    }, Math.min(remaining + 50, 2_147_483_647));
+    return () => window.clearTimeout(timer);
+  }, [data?.case.status, data?.case.appeal_deadline_at, loadData]);
+
   // Kiểm tra thời hạn khiếu nại
   const isAppealExpired = useMemo(() => {
     if (!data?.case.appeal_deadline_at) return false;
-    return new Date(data.case.appeal_deadline_at).getTime() <= new Date().getTime();
-  }, [data]);
+    return new Date(data.case.appeal_deadline_at).getTime() <= now;
+  }, [data, now]);
 
   // Kiểm tra có đang được phép gửi khiếu nại mới không
   const canSubmitAppeal = useMemo(() => {
@@ -103,6 +120,10 @@ export const StudentAppeal: React.FC = () => {
   };
 
   const handlePreSubmit = () => {
+    if (!canSubmitAppeal) {
+      setValidationError('Đã hết hạn hoặc hồ sơ chưa được công bố. Hãy tải lại để xem trạng thái mới nhất.');
+      return;
+    }
     setValidationError(null);
 
     // 1. Kiểm tra ít nhất 1 tiêu chí được chọn
@@ -126,7 +147,7 @@ export const StudentAppeal: React.FC = () => {
   };
 
   const handleConfirmSubmit = async () => {
-    if (!data) return;
+    if (!data || !canSubmitAppeal || isSubmitting) return;
     setShowConfirm(false);
     setIsSubmitting(true);
     setValidationError(null);
@@ -152,6 +173,12 @@ export const StudentAppeal: React.FC = () => {
         setFeedbackMessage({
           type: 'danger',
           text: 'Hồ sơ đã thay đổi từ trước. Vui lòng tải lại dữ liệu.',
+        });
+      } else if (errObj?.error?.code === 'DEADLINE_EXPIRED') {
+        setNow(Date.now());
+        setFeedbackMessage({
+          type: 'info',
+          text: 'Đã hết hạn khiếu nại. Hãy tải lại kết quả để xem trạng thái ghi nhận mới nhất.',
         });
       } else {
         setFeedbackMessage({

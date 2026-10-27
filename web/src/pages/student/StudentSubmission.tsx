@@ -1,11 +1,13 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { StatusBadge } from '../../components/StatusBadge';
 import { Deadline } from '../../components/Deadline';
 import { ConfirmDialog } from '../../components/ConfirmDialog';
-import { StudentCurrentResponse, Claim } from '../../api/types';
+import { StudentCurrentResponse, Criterion, Claim, RuleCheckResponse } from '../../api/types';
+import { api } from '../../api/client';
 import { studentService } from '../../components/student/studentService';
 import { CriterionCard } from '../../components/student/CriterionCard';
 import { StudentScenarioBar } from '../../components/student/StudentScenarioBar';
+import { PrintEvaluationFormModal } from '../../components/PrintEvaluationFormModal';
 import '../../components/student/studentStyles.css';
 import {
   Save,
@@ -16,6 +18,9 @@ import {
   RefreshCw,
   Info,
   ArrowLeft,
+  Printer,
+  Files,
+  Layers,
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
@@ -26,8 +31,14 @@ export const StudentSubmission: React.FC = () => {
   const [isSaving, setIsSaving] = useState<boolean>(false);
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [showConfirm, setShowConfirm] = useState<boolean>(false);
+  const [showPrintModal, setShowPrintModal] = useState<boolean>(false);
   const [validationError, setValidationError] = useState<string | null>(null);
   const [feedbackMessage, setFeedbackMessage] = useState<{ type: 'success' | 'danger' | 'info'; text: string } | null>(null);
+  const [ruleChecks, setRuleChecks] = useState<RuleCheckResponse | null>(null);
+  const [ruleError, setRuleError] = useState<string | null>(null);
+  const [criterionErrors, setCriterionErrors] = useState<Record<string, string>>({});
+  const [missingEvidenceCodes, setMissingEvidenceCodes] = useState<string[]>([]);
+  const submitLock = useRef(false);
 
   const loadData = useCallback(async () => {
     try {
@@ -61,6 +72,17 @@ export const StudentSubmission: React.FC = () => {
     loadData();
   }, [loadData]);
 
+  const evidenceSignature = data?.claims.map((claim) => claim.evidence.map((file) => file.id).join(',')).join('|');
+  useEffect(() => {
+    if (!data || studentService.getMode() === 'mock') {
+      setRuleChecks(null);
+      return;
+    }
+    void api.get<RuleCheckResponse>(`/student/cases/${data.case.id}/rule-checks`)
+      .then((result) => { setRuleChecks(result); setRuleError(null); })
+      .catch(() => setRuleError('Chưa tải được cảnh báo kiểm tra hồ sơ.'));
+  }, [data?.case.id, data?.case.version, evidenceSignature]);
+
   // Kiểm tra quyền chỉnh sửa form
   const isEditable = useMemo(() => {
     if (!data) return false;
@@ -84,27 +106,83 @@ export const StudentSubmission: React.FC = () => {
     return true;
   }, [data]);
 
-  // Tính tổng điểm tự khai hiện tại
-  const claimedTotal = useMemo(() => {
-    if (!data) return '0.00';
-    let sum = 0;
-    for (const crit of data.criteria) {
-      const c = claimsMap[crit.id];
-      if (c && c.self_score) {
-        sum += parseFloat(c.self_score) || 0;
+  // Group criteria into sections
+  const sectionGroups = useMemo(() => {
+    if (!data) return [];
+    const groups: {
+      code: string;
+      title: string;
+      maxScore: number;
+      criteria: Criterion[];
+    }[] = [];
+
+    const map: Record<string, { code: string; title: string; maxScore: number; criteria: Criterion[] }> = {};
+
+    data.criteria.forEach((crit) => {
+      const secCode = crit.section_code || 'DEFAULT';
+      if (!map[secCode]) {
+        map[secCode] = {
+          code: secCode,
+          title: crit.section_title || 'Tiêu chí đánh giá',
+          maxScore: parseFloat(crit.section_max_score || crit.max_score || '0'),
+          criteria: [],
+        };
+        groups.push(map[secCode]);
       }
-    }
-    return sum.toFixed(2);
-  }, [data, claimsMap]);
+      map[secCode].criteria.push(crit);
+    });
+
+    return groups;
+  }, [data]);
+
+  // Calculate section subtotals and grand claimed total (respecting section caps)
+  const { sectionSubtotals, claimedTotal } = useMemo(() => {
+    if (!data || sectionGroups.length === 0) return { sectionSubtotals: {}, claimedTotal: '0.00' };
+
+    const subtotals: Record<string, { raw: number; capped: number; max: number }> = {};
+    let totalCapped = 0;
+
+    sectionGroups.forEach((grp) => {
+      let rawSum = 0;
+      grp.criteria.forEach((cr) => {
+        const val = claimsMap[cr.id]?.self_score;
+        if (val) {
+          rawSum += parseFloat(val) || 0;
+        }
+      });
+      const cappedSum = grp.maxScore > 0 ? Math.min(rawSum, grp.maxScore) : rawSum;
+      subtotals[grp.code] = {
+        raw: rawSum,
+        capped: cappedSum,
+        max: grp.maxScore,
+      };
+      totalCapped += cappedSum;
+    });
+
+    const finalTotal = Math.min(totalCapped, 100);
+    return {
+      sectionSubtotals: subtotals,
+      claimedTotal: finalTotal.toFixed(2),
+    };
+  }, [data, sectionGroups, claimsMap]);
 
   // Tổng điểm tối đa
   const maxTotal = useMemo(() => {
     if (!data) return '0.00';
+    if (sectionGroups.length > 1) {
+      return '100.00';
+    }
     const sum = data.criteria.reduce((acc, c) => acc + (parseFloat(c.max_score) || 0), 0);
     return sum.toFixed(2);
-  }, [data]);
+  }, [data, sectionGroups]);
 
   const handleClaimChange = (criterionId: string, selfScore: string | null, studentNote: string | null) => {
+    setCriterionErrors((prev) => {
+      if (!prev[criterionId]) return prev;
+      const next = { ...prev };
+      delete next[criterionId];
+      return next;
+    });
     setClaimsMap((prev) => ({
       ...prev,
       [criterionId]: {
@@ -121,6 +199,12 @@ export const StudentSubmission: React.FC = () => {
       // Tải lại dữ liệu để cập nhật danh sách evidence
       const updated = await studentService.getCurrent();
       setData(updated);
+      setCriterionErrors((prev) => {
+        if (!prev[criterionId]) return prev;
+        const next = { ...prev };
+        delete next[criterionId];
+        return next;
+      });
       setFeedbackMessage({
         type: 'success',
         text: `Đã tải lên tệp "${file.name}" thành công.`,
@@ -160,6 +244,7 @@ export const StudentSubmission: React.FC = () => {
     try {
       let currentVer = data.case.version;
       for (const crit of data.criteria) {
+        if (crit.code === '4e') continue; // Bỏ qua tiêu chí hệ thống khóa
         const item = claimsMap[crit.id];
         if (item) {
           const res = await studentService.saveClaim(
@@ -202,18 +287,23 @@ export const StudentSubmission: React.FC = () => {
     if (!data || !isEditable) return;
     setValidationError(null);
 
-    // Kiểm tra mọi tiêu chí phải có self_score
     const unScored: string[] = [];
     const missingEvidence: string[] = [];
+    const nextErrors: Record<string, string> = {};
 
     for (const crit of data.criteria) {
+      // Bỏ qua tiêu chí do hệ thống khóa (4e)
+      if (crit.code === '4e') continue;
+
       const claim = claimsMap[crit.id];
       if (!claim || claim.self_score === null || claim.self_score.trim() === '') {
         unScored.push(crit.code);
+        nextErrors[crit.id] = 'Hãy nhập điểm tự chấm trước khi nộp hồ sơ.';
       } else {
-        const num = parseFloat(claim.self_score);
-        if (isNaN(num) || num < 0 || num > parseFloat(crit.max_score)) {
+        const num = Number(claim.self_score.trim());
+        if (!Number.isFinite(num) || num < 0 || num > Number(crit.max_score)) {
           unScored.push(`${crit.code} (điểm không hợp lệ)`);
+          nextErrors[crit.id] = 'Điểm phải từ 0 đến ' + crit.max_score + '.';
         }
       }
 
@@ -225,33 +315,29 @@ export const StudentSubmission: React.FC = () => {
     }
 
     if (unScored.length > 0) {
-      setValidationError(`Vui lòng tự chấm điểm hợp lệ cho tất cả tiêu chí: ${unScored.join(', ')}.`);
+      setCriterionErrors(nextErrors);
+      setValidationError(`Vui lòng tự chấm điểm hợp lệ cho các tiêu chí: ${unScored.join(', ')}.`);
       return;
     }
 
-    if (missingEvidence.length > 0) {
-      // Cảnh báo người dùng nhưng cho phép nộp (hệ thống sẽ chuyển thành NEEDS_INFO như đặc tả)
-      setFeedbackMessage({
-        type: 'info',
-        text: `Lưu ý: Tiêu chí [${missingEvidence.join(', ')}] bắt buộc có minh chứng nhưng bạn chưa đính kèm. Hồ sơ sau khi nộp sẽ chuyển sang trạng thái "Cần bổ sung thông tin" (NEEDS_INFO).`,
-      });
-    }
-
+    setCriterionErrors({});
+    setMissingEvidenceCodes(missingEvidence);
     setShowConfirm(true);
   };
 
   // Xác nhận nộp hồ sơ
   const handleConfirmSubmit = async () => {
-    if (!data) return;
+    if (!data || submitLock.current) return;
+    submitLock.current = true;
     setShowConfirm(false);
     setIsSubmitting(true);
     setValidationError(null);
     setFeedbackMessage(null);
 
     try {
-      // Lưu lại các chỉnh sửa mới nhất trước khi gọi nộp
       let currentVer = data.case.version;
       for (const crit of data.criteria) {
+        if (crit.code === '4e') continue;
         const item = claimsMap[crit.id];
         if (item) {
           const res = await studentService.saveClaim(
@@ -265,16 +351,19 @@ export const StudentSubmission: React.FC = () => {
         }
       }
 
-      // Gọi API nộp hồ sơ
       const submitRes = await studentService.submitCase(data.case.id, currentVer);
-
       const updated = await studentService.getCurrent();
       setData(updated);
 
       if (submitRes.status === 'NEEDS_INFO') {
         setFeedbackMessage({
-          type: 'danger',
+          type: 'info',
           text: `Hồ sơ đã được tiếp nhận nhưng thiếu thông tin bắt buộc. Trạng thái hiện tại: Cần bổ sung thông tin (NEEDS_INFO). Vui lòng bổ sung trước hạn.`,
+        });
+      } else if (submitRes.status === 'CLOSED_INCOMPLETE') {
+        setFeedbackMessage({
+          type: 'danger',
+          text: 'Hồ sơ đã đóng do chưa hoàn tất yêu cầu bổ sung. Hãy liên hệ Ban cán sự để được hướng dẫn.',
         });
       } else {
         setFeedbackMessage({
@@ -297,6 +386,7 @@ export const StudentSubmission: React.FC = () => {
       }
     } finally {
       setIsSubmitting(false);
+      submitLock.current = false;
     }
   };
 
@@ -369,6 +459,15 @@ export const StudentSubmission: React.FC = () => {
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
+          <button
+            type="button"
+            className="btn btn-secondary"
+            onClick={() => setShowPrintModal(true)}
+            style={{ fontSize: '0.85rem' }}
+          >
+            <Printer size={15} /> Xem & In phiếu (A4)
+          </button>
+
           <StatusBadge status={studentCase.status} />
           {studentCase.status === 'NEEDS_INFO' || studentCase.status === 'NEEDS_PROOF' ? (
             activeSupplement ? (
@@ -390,7 +489,41 @@ export const StudentSubmission: React.FC = () => {
         </div>
       )}
 
-      {/* 4. Banner cảnh báo nếu form bị khóa không cho sửa */}
+      {/* 4. Cảnh báo từ tầng kiểm tra bằng luật */}
+      {(ruleError || (ruleChecks && ruleChecks.findings.length > 0)) && (
+        <div
+          style={{
+            backgroundColor: '#fffbeb',
+            border: '1px solid #fde68a',
+            borderRadius: '6px',
+            padding: '0.85rem 1rem',
+            marginBottom: '1rem',
+            color: '#92400e',
+            fontSize: '0.875rem',
+            display: 'flex',
+            gap: '0.75rem',
+            alignItems: 'flex-start',
+          }}
+        >
+          <Files size={18} style={{ flexShrink: 0, marginTop: '2px' }} color="#d97706" />
+          <div>
+            <strong>Kiểm tra hồ sơ bằng luật:</strong>
+            {ruleError && <div>{ruleError}</div>}
+            <ul style={{ margin: '0.35rem 0 0 1.2rem', padding: 0 }}>
+              {ruleChecks?.findings.map((finding, i) => (
+                <li key={`${finding.code}-${i}`}>
+                  {finding.criterion_code && <strong>[{finding.criterion_code}] </strong>}{finding.message}
+                </li>
+              ))}
+            </ul>
+            <div style={{ fontSize: '0.8rem', marginTop: '0.35rem', color: '#b45309' }}>
+              Đây là cảnh báo để kiểm tra, không tự thay đổi điểm hoặc loại minh chứng.
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 5. Banner cảnh báo nếu form bị khóa không cho sửa */}
       {!isEditable && (
         <div className="student-alert student-alert-info">
           <Lock size={18} style={{ flexShrink: 0 }} />
@@ -407,7 +540,7 @@ export const StudentSubmission: React.FC = () => {
         </div>
       )}
 
-      {/* 5. Cảnh báo lỗi xác thực */}
+      {/* 6. Cảnh báo lỗi xác thực */}
       {validationError && (
         <div className="student-alert student-alert-danger">
           <AlertTriangle size={18} style={{ flexShrink: 0 }} />
@@ -415,39 +548,100 @@ export const StudentSubmission: React.FC = () => {
         </div>
       )}
 
-      {/* 6. Danh sách các tiêu chí đánh giá */}
+      {/* 7. Danh sách các tiêu chí đánh giá phân theo từng Điều (5 Mục) */}
       <div>
-        {criteria.map((crit) => {
-          const claim = claims.find((c) => c.criterion_id === crit.id) || {
-            id: `temp-${crit.id}`,
-            criterion_id: crit.id,
-            self_score: null,
-            student_note: null,
-            approved_score: null,
-            bcs_reason: null,
-            evidence: [],
-          };
-
-          const suppReq = supplement_requests?.find(
-            (r) => !r.fulfilled_at && (r.criterion_id === crit.id || r.criterion_id === null)
-          );
+        {sectionGroups.map((group) => {
+          const sub = sectionSubtotals[group.code] || { raw: 0, capped: 0, max: group.maxScore };
+          const isOverCap = sub.raw > group.maxScore;
 
           return (
-            <CriterionCard
-              key={crit.id}
-              criterion={crit}
-              claim={claim}
-              supplementRequest={suppReq}
-              isEditable={isEditable}
-              onClaimChange={handleClaimChange}
-              onFileUpload={handleFileUpload}
-              onFileRemove={handleFileRemove}
-            />
+            <div key={group.code} style={{ marginBottom: '2rem' }}>
+              {/* Section Header Card */}
+              <div
+                style={{
+                  backgroundColor: '#f8fafc',
+                  border: '1px solid #cbd5e1',
+                  borderLeft: '4px solid #1e40af',
+                  borderRadius: '6px',
+                  padding: '0.85rem 1.25rem',
+                  marginBottom: '1rem',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  flexWrap: 'wrap',
+                  gap: '0.75rem',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <Layers size={18} color="#1e40af" />
+                  <span style={{ fontSize: '1rem', fontWeight: 700, color: '#0f172a' }}>
+                    {group.title}
+                  </span>
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', fontSize: '0.875rem' }}>
+                  <div>
+                    Tổng điểm mục:{' '}
+                    <strong style={{ color: '#1e40af', fontSize: '1.05rem' }}>
+                      {sub.capped.toFixed(2)}
+                    </strong>{' '}
+                    / {group.maxScore.toFixed(2)} điểm
+                  </div>
+                  {isOverCap && (
+                    <span
+                      style={{
+                        fontSize: '0.75rem',
+                        color: '#b45309',
+                        backgroundColor: '#fef3c7',
+                        padding: '0.2rem 0.5rem',
+                        borderRadius: '4px',
+                        fontWeight: 600,
+                      }}
+                      title={`Tự chấm: ${sub.raw.toFixed(2)}đ. Điểm áp trần tối đa của mục là ${group.maxScore.toFixed(2)}đ`}
+                    >
+                      (Áp trần tối đa {group.maxScore}đ)
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {/* Criteria in Section */}
+              {group.criteria.map((crit) => {
+                const claim = claims.find((c) => c.criterion_id === crit.id) || {
+                  id: `temp-${crit.id}`,
+                  criterion_id: crit.id,
+                  self_score: null,
+                  student_note: null,
+                  approved_score: null,
+                  bcs_reason: null,
+                  evidence: [],
+                };
+
+                const suppReq = supplement_requests?.find(
+                  (r) => !r.fulfilled_at && (r.criterion_id === crit.id || r.criterion_id === null)
+                );
+
+                return (
+                  <CriterionCard
+                    key={crit.id}
+                    criterion={crit}
+                    claim={claim}
+                    supplementRequest={suppReq}
+                    isEditable={isEditable}
+                    onClaimChange={handleClaimChange}
+                    onFileUpload={handleFileUpload}
+                    onFileRemove={handleFileRemove}
+                    submissionError={criterionErrors[crit.id]}
+                    evidenceWarning={missingEvidenceCodes.includes(crit.code) && !claim.evidence?.length}
+                  />
+                );
+              })}
+            </div>
           );
         })}
       </div>
 
-      {/* 7. Thanh tổng kết & Hành động (Sticky / Footer Card) */}
+      {/* 8. Thanh tổng kết & Hành động (Sticky / Footer Card) */}
       <div className="card" style={{ marginTop: '1.5rem', position: 'sticky', bottom: '1rem', zIndex: 10 }}>
         <div className="student-action-bar" style={{ margin: 0, padding: 0, border: 'none' }}>
           <div>
@@ -461,6 +655,16 @@ export const StudentSubmission: React.FC = () => {
           </div>
 
           <div className="btn-group" style={{ display: 'flex', gap: '0.75rem' }}>
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={() => setShowPrintModal(true)}
+              title="Xem và in phiếu tự đánh giá"
+            >
+              <Printer size={16} />
+              <span>In phiếu</span>
+            </button>
+
             <button
               type="button"
               className="btn btn-secondary"
@@ -492,16 +696,31 @@ export const StudentSubmission: React.FC = () => {
         </div>
       </div>
 
-      {/* 8. Hộp thoại xác nhận nộp hồ sơ */}
+      {/* 9. Hộp thoại xác nhận nộp hồ sơ */}
       <ConfirmDialog
         isOpen={showConfirm}
         title="Xác nhận nộp hồ sơ rèn luyện"
-        message="Sau khi nộp, hồ sơ sẽ được chuyển tới Ban cán sự lớp để kiểm tra. Bạn sẽ không thể tự ý sửa đổi trừ khi có yêu cầu bổ sung thông tin hoặc minh chứng. Bạn có chắc chắn muốn nộp?"
-        confirmLabel="Đồng ý nộp"
+        message={missingEvidenceCodes.length > 0
+          ? 'Chưa có minh chứng bắt buộc ở tiêu chí ' + missingEvidenceCodes.join(', ') + '. Sau khi nộp, hồ sơ có thể chuyển sang trạng thái Cần bổ sung thông tin. Bạn có muốn tiếp tục?'
+          : 'Sau khi nộp, hồ sơ sẽ được chuyển tới Ban cán sự lớp để kiểm tra. Bạn chỉ có thể sửa khi nhận yêu cầu bổ sung. Xác nhận nộp hồ sơ?'}
+        confirmLabel="Xác nhận nộp hồ sơ"
         cancelLabel="Kiểm tra lại"
         isLoading={isSubmitting}
         onConfirm={handleConfirmSubmit}
         onCancel={() => setShowConfirm(false)}
+      />
+
+      {/* 10. Modal xem và in phiếu tự đánh giá A4 */}
+      <PrintEvaluationFormModal
+        isOpen={showPrintModal}
+        onClose={() => setShowPrintModal(false)}
+        campaignTitle={campaign.title}
+        term={campaign.term}
+        studentName="Sinh viên"
+        studentCode="SV-CURRENT"
+        criteria={criteria}
+        claims={claims}
+        claimedTotal={claimedTotal}
       />
     </div>
   );

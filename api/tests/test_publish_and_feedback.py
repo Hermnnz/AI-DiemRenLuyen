@@ -40,6 +40,16 @@ def _setup_case_to_proposed(client, auth_sv, auth_bcs, case, criteria):
         )
         case.version = resp_rev.json()["version"]
 
+    detail = client.get(f"/api/v1/bcs/cases/{case.id}", cookies=auth_bcs["cookies"]).json()
+    for evidence_id in detail["evidence_review_required_ids"]:
+        resp_decision = client.put(
+            f"/api/v1/bcs/cases/{case.id}/evidence/{evidence_id}/decision",
+            json={"decision": "ACCEPT", "reason": "Đã đối chiếu minh chứng trong hồ sơ", "expected_version": case.version},
+            cookies=auth_bcs["cookies"], headers=auth_bcs["headers"],
+        )
+        assert resp_decision.status_code == 200
+        case.version = resp_decision.json()["version"]
+
     resp_comp = client.post(
         f"/api/v1/bcs/cases/{case.id}/complete-review",
         json={"expected_version": case.version},
@@ -48,6 +58,17 @@ def _setup_case_to_proposed(client, auth_sv, auth_bcs, case, criteria):
     )
     case.version = resp_comp.json()["version"]
     case.status = "PROPOSED"
+
+
+def _confirm_draft(client, camp, auth_bcs):
+    board = client.get(f"/api/v1/bcs/campaigns/{camp.id}/scoreboard", cookies=auth_bcs["cookies"]).json()
+    response = client.post(
+        f"/api/v1/bcs/campaigns/{camp.id}/review-draft",
+        json={"expected_fingerprint": board["draft_review"]["fingerprint"], "note": "Đã đối chiếu danh sách và biên bản họp BCS"},
+        cookies=auth_bcs["cookies"], headers=auth_bcs["headers"],
+    )
+    assert response.status_code == 200
+    assert response.json()["reviewed"] is True
 
 
 def test_acceptance_criteria_8_meetings_and_publish_gate(client, seed_data):
@@ -92,26 +113,45 @@ def test_acceptance_criteria_8_meetings_and_publish_gate(client, seed_data):
     assert resp_pub2.status_code == 422
     assert resp_pub2.json()["error"]["code"] == "MEETINGS_INCOMPLETE"
 
-    # Add CLASS meeting
-    client.post(
+    # CLASS meeting is blocked until the entire draft has been reviewed.
+    early_class = client.post(
         f"/api/v1/bcs/campaigns/{camp.id}/meetings",
         json={"kind": "CLASS", "held_at": "2026-10-26T14:00:00Z", "note": "Họp Lớp"},
         cookies=auth_bcs["cookies"],
         headers=auth_bcs["headers"],
     )
+    assert early_class.status_code == 422
+    assert early_class.json()["error"]["code"] == "DRAFT_REVIEW_REQUIRED"
 
-    # Now meetings are complete, but cases 1 and 2 are still in DRAFT -> 422 CASES_NOT_READY
+    # Cases 1 and 2 are still in DRAFT.
     resp_pub3 = client.post(
         f"/api/v1/bcs/campaigns/{camp.id}/publish",
         cookies=auth_bcs["cookies"],
         headers=auth_bcs["headers"],
     )
     assert resp_pub3.status_code == 422
-    assert resp_pub3.json()["error"]["code"] == "CASES_NOT_READY"
+    assert resp_pub3.json()["error"]["code"] == "MEETINGS_INCOMPLETE"
 
     # Move case 1 and case 2 to PROPOSED as well
     _setup_case_to_proposed(client, auth_sv2, auth_bcs, cases[1], criteria)
     _setup_case_to_proposed(client, auth_sv3, auth_bcs, cases[2], criteria)
+
+    _confirm_draft(client, camp, auth_bcs)
+    revised = client.put(
+        f"/api/v1/bcs/cases/{cases[0].id}/claims/{criteria[0].id}/review",
+        json={"approved_score": "7.00", "reason": "Điều chỉnh theo biên bản họp BCS", "expected_version": cases[0].version},
+        cookies=auth_bcs["cookies"], headers=auth_bcs["headers"],
+    )
+    assert revised.status_code == 200
+    cases[0].version = revised.json()["version"]
+    assert client.get(f"/api/v1/bcs/campaigns/{camp.id}/scoreboard", cookies=auth_bcs["cookies"]).json()["draft_review"]["reviewed"] is False
+    _confirm_draft(client, camp, auth_bcs)
+    class_meeting = client.post(
+        f"/api/v1/bcs/campaigns/{camp.id}/meetings",
+        json={"kind": "CLASS", "held_at": "2026-10-26T14:00:00Z", "note": "Họp Lớp"},
+        cookies=auth_bcs["cookies"], headers=auth_bcs["headers"],
+    )
+    assert class_meeting.status_code == 200
 
     # Now all cases are PROPOSED and both meetings exist -> Publish succeeds!
     resp_pub_success = client.post(
@@ -151,6 +191,7 @@ def test_acceptance_criteria_9_score_masking_before_and_after_publish(client, se
     _setup_case_to_proposed(client, auth_sv2, auth_bcs, cases[1], criteria)
     _setup_case_to_proposed(client, auth_sv3, auth_bcs, cases[2], criteria)
     client.post(f"/api/v1/bcs/campaigns/{camp.id}/meetings", json={"kind": "BCS", "held_at": "2026-10-25T14:00:00Z"}, cookies=auth_bcs["cookies"], headers=auth_bcs["headers"])
+    _confirm_draft(client, camp, auth_bcs)
     client.post(f"/api/v1/bcs/campaigns/{camp.id}/meetings", json={"kind": "CLASS", "held_at": "2026-10-26T14:00:00Z"}, cookies=auth_bcs["cookies"], headers=auth_bcs["headers"])
     client.post(f"/api/v1/bcs/campaigns/{camp.id}/publish", cookies=auth_bcs["cookies"], headers=auth_bcs["headers"])
 
@@ -181,6 +222,7 @@ def test_acceptance_criteria_10_accept_appeal_mutual_exclusion(client, seed_data
     _setup_case_to_proposed(client, auth_sv2, auth_bcs, cases[1], criteria)
     _setup_case_to_proposed(client, auth_sv3, auth_bcs, cases[2], criteria)
     client.post(f"/api/v1/bcs/campaigns/{camp.id}/meetings", json={"kind": "BCS", "held_at": "2026-10-25T14:00:00Z"}, cookies=auth_bcs["cookies"], headers=auth_bcs["headers"])
+    _confirm_draft(client, camp, auth_bcs)
     client.post(f"/api/v1/bcs/campaigns/{camp.id}/meetings", json={"kind": "CLASS", "held_at": "2026-10-26T14:00:00Z"}, cookies=auth_bcs["cookies"], headers=auth_bcs["headers"])
     client.post(f"/api/v1/bcs/campaigns/{camp.id}/publish", cookies=auth_bcs["cookies"], headers=auth_bcs["headers"])
 

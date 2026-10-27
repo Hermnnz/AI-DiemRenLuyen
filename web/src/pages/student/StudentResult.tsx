@@ -6,6 +6,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { StudentCurrentResponse } from '../../api/types';
 import { studentService } from '../../components/student/studentService';
 import { StudentScenarioBar } from '../../components/student/StudentScenarioBar';
+import { PrintEvaluationFormModal } from '../../components/PrintEvaluationFormModal';
 import '../../components/student/studentStyles.css';
 import {
   Award,
@@ -19,6 +20,7 @@ import {
   RefreshCw,
   FileText,
   Image as ImageIcon,
+  Printer,
 } from 'lucide-react';
 
 export const StudentResult: React.FC = () => {
@@ -27,7 +29,9 @@ export const StudentResult: React.FC = () => {
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [isAccepting, setIsAccepting] = useState<boolean>(false);
   const [showConfirmAccept, setShowConfirmAccept] = useState<boolean>(false);
+  const [showPrintModal, setShowPrintModal] = useState<boolean>(false);
   const [feedbackMessage, setFeedbackMessage] = useState<{ type: 'success' | 'danger' | 'info'; text: string } | null>(null);
+  const [now, setNow] = useState(Date.now());
 
   const loadData = useCallback(async () => {
     try {
@@ -50,6 +54,21 @@ export const StudentResult: React.FC = () => {
     loadData();
   }, [loadData]);
 
+  useEffect(() => {
+    const deadline = data?.case.appeal_deadline_at;
+    if (data?.case.status !== 'PUBLISHED' || !deadline) return;
+    const remaining = new Date(deadline).getTime() - Date.now();
+    if (remaining <= 0) {
+      setNow(Date.now());
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      setNow(Date.now());
+      void loadData();
+    }, Math.min(remaining + 50, 2_147_483_647));
+    return () => window.clearTimeout(timer);
+  }, [data?.case.status, data?.case.appeal_deadline_at, loadData]);
+
   // Kiểm tra trạng thái đã công bố chưa
   const isPublishedStage = (status: string): boolean => {
     const publishedStages = ['PUBLISHED', 'ACCEPTED', 'ACCEPTED_AUTO', 'APPEALED', 'RESOLVED', 'FINALIZED'];
@@ -59,7 +78,7 @@ export const StudentResult: React.FC = () => {
   // Kiểm tra hết hạn khiếu nại
   const isAppealExpired = (deadlineIso: string | null | undefined): boolean => {
     if (!deadlineIso) return false;
-    return new Date(deadlineIso).getTime() <= new Date().getTime();
+    return new Date(deadlineIso).getTime() <= now;
   };
 
   // Xác nhận đồng ý điểm
@@ -83,6 +102,12 @@ export const StudentResult: React.FC = () => {
         setFeedbackMessage({
           type: 'danger',
           text: 'Hồ sơ đã thay đổi từ trước. Vui lòng tải lại trang.',
+        });
+      } else if (errObj?.error?.code === 'DEADLINE_EXPIRED') {
+        setNow(Date.now());
+        setFeedbackMessage({
+          type: 'info',
+          text: 'Đã hết hạn phản hồi. Hãy tải lại kết quả để xem trạng thái ghi nhận mới nhất.',
         });
       } else {
         setFeedbackMessage({
@@ -255,6 +280,16 @@ export const StudentResult: React.FC = () => {
                 <div style={{ fontSize: '0.875rem', color: '#475569', marginTop: '0.2rem' }}>
                   Sinh viên có quyền gửi khiếu nại một lần trước hạn chót nếu phát hiện sai lệch.
                 </div>
+                <div style={{ marginTop: '0.5rem' }}>
+                  <button
+                    type="button"
+                    onClick={() => setShowPrintModal(true)}
+                    className="btn btn-secondary"
+                    style={{ fontSize: '0.8rem', padding: '0.3rem 0.65rem' }}
+                  >
+                    <Printer size={14} /> Xem & In phiếu đánh giá (A4)
+                  </button>
+                </div>
               </div>
 
               <div style={{ textAlign: 'right' }}>
@@ -268,6 +303,36 @@ export const StudentResult: React.FC = () => {
                     (Tự khai: {studentCase.claimed_total ?? '0.00'})
                   </span>
                 </div>
+                {/* Reference Rating based on Parameters sheet */}
+                {(() => {
+                  const scoreVal = parseFloat(studentCase.final_total ?? studentCase.proposed_total ?? '0');
+                  let ratingText = 'Chưa xếp loại';
+                  if (!isNaN(scoreVal) && scoreVal > 0) {
+                    if (scoreVal >= 90) ratingText = 'Xuất sắc';
+                    else if (scoreVal >= 80) ratingText = 'Tốt';
+                    else if (scoreVal >= 65) ratingText = 'Khá';
+                    else if (scoreVal >= 50) ratingText = 'Trung bình';
+                    else if (scoreVal >= 35) ratingText = 'Yếu';
+                    else ratingText = 'Kém';
+                  }
+                  return (
+                    <div style={{ fontSize: '0.825rem', marginTop: '0.25rem' }}>
+                      Xếp loại tham khảo:{' '}
+                      <span
+                        style={{
+                          fontWeight: 700,
+                          color: '#b45309',
+                          backgroundColor: '#fef3c7',
+                          padding: '0.15rem 0.45rem',
+                          borderRadius: '4px',
+                        }}
+                        title="Xếp loại tham khảo theo sheet Parameters của lớp"
+                      >
+                        {ratingText}
+                      </span>
+                    </div>
+                  );
+                })()}
               </div>
             </div>
 
@@ -490,6 +555,20 @@ export const StudentResult: React.FC = () => {
             isLoading={isAccepting}
             onConfirm={handleConfirmAccept}
             onCancel={() => setShowConfirmAccept(false)}
+          />
+
+          {/* Modal in Phiếu Tự Đánh Giá A4 */}
+          <PrintEvaluationFormModal
+            isOpen={showPrintModal}
+            onClose={() => setShowPrintModal(false)}
+            campaignTitle={campaign.title}
+            term={campaign.term}
+            studentName="Sinh viên"
+            studentCode="SV-CURRENT"
+            criteria={criteria}
+            claims={claims}
+            proposedTotal={studentCase.final_total ?? studentCase.proposed_total}
+            claimedTotal={studentCase.claimed_total}
           />
         </div>
       )}

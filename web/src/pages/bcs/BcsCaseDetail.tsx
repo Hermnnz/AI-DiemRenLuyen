@@ -1,12 +1,13 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { StatusBadge } from '../../components/StatusBadge';
 import { ConfirmDialog } from '../../components/ConfirmDialog';
 import { Deadline } from '../../components/Deadline';
 import { SafeFilePreviewModal } from '../../components/staff/SafeFilePreviewModal';
 import { SupplementRequestModal } from '../../components/staff/SupplementRequestModal';
+import { PrintEvaluationFormModal } from '../../components/PrintEvaluationFormModal';
 import { api } from '../../api/client';
-import { BcsCaseDetail as BcsCaseDetailType, EvidenceFile, SupplementKind } from '../../api/types';
+import { AiReviewRun, BcsCaseDetail as BcsCaseDetailType, EvidenceFile, SupplementKind, Criterion, Claim, RuleCheckResponse, ScoreSuggestionResponse } from '../../api/types';
 import { staffStore } from '../../components/staff/mockStaffData';
 import {
   FileText,
@@ -17,9 +18,13 @@ import {
   Eye,
   Info,
   ShieldAlert,
+  Printer,
+  Layers,
+  Loader2,
 } from 'lucide-react';
 
 const isDemoMode = typeof import.meta !== 'undefined' && import.meta.env?.VITE_DEMO_MODE === 'true';
+const aiPilotEnabled = import.meta.env?.VITE_AI_REVIEW_ENABLED === 'true' && !isDemoMode;
 
 export const BcsCaseDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -32,12 +37,25 @@ export const BcsCaseDetail: React.FC = () => {
   const [scores, setScores] = useState<Record<string, string>>({});
   const [reasons, setReasons] = useState<Record<string, string>>({});
   const [savingCriterionId, setSavingCriterionId] = useState<string | null>(null);
+  const [evidenceChoices, setEvidenceChoices] = useState<Record<string, string>>({});
+  const [evidenceReasons, setEvidenceReasons] = useState<Record<string, string>>({});
+  const [savingEvidenceId, setSavingEvidenceId] = useState<string | null>(null);
+  const evidenceRequestLock = useRef(false);
 
   // Modals state
   const [previewFile, setPreviewFile] = useState<EvidenceFile | null>(null);
   const [showSupplementModal, setShowSupplementModal] = useState<boolean>(false);
   const [showCompleteConfirm, setShowCompleteConfirm] = useState<boolean>(false);
   const [showHistory, setShowHistory] = useState<boolean>(false);
+  const [showPrintModal, setShowPrintModal] = useState<boolean>(false);
+  const [aiRun, setAiRun] = useState<AiReviewRun | null>(null);
+  const [aiBusy, setAiBusy] = useState(false);
+  const aiRequestLock = useRef(false);
+  const [aiError, setAiError] = useState<string | null>(null);
+  const [ruleChecks, setRuleChecks] = useState<RuleCheckResponse | null>(null);
+  const [ruleError, setRuleError] = useState<string | null>(null);
+  const [scoreSuggestions, setScoreSuggestions] = useState<ScoreSuggestionResponse | null>(null);
+  const [suggestionError, setSuggestionError] = useState<string | null>(null);
 
   // Load case detail
   const loadCase = async () => {
@@ -84,11 +102,66 @@ export const BcsCaseDetail: React.FC = () => {
 
     setScores(initialScores);
     setReasons(initialReasons);
+    setEvidenceChoices(Object.fromEntries((data.evidence_decisions || []).map((item) => [item.evidence_file_id, item.decision])));
+    setEvidenceReasons(Object.fromEntries((data.evidence_decisions || []).map((item) => [item.evidence_file_id, item.reason])));
   };
 
   useEffect(() => {
     loadCase();
   }, [id]);
+
+  const loadAiRun = async () => {
+    if (!id || !aiPilotEnabled) return;
+    try {
+      const response = await api.get<{ run: AiReviewRun | null }>(`/bcs/cases/${id}/ai-reviews/latest`);
+      setAiRun(response.run);
+      setAiError(null);
+    } catch (err: unknown) {
+      const message = (err as { error?: { message?: string } })?.error?.message;
+      setAiError(message || 'Không tải được trạng thái phân tích.');
+    }
+  };
+
+  useEffect(() => {
+    if (aiPilotEnabled && caseData) void loadAiRun();
+  }, [id, caseData?.version]);
+
+  useEffect(() => {
+    if (!id || !caseData || isDemoMode) return;
+    void api.get<RuleCheckResponse>(`/bcs/cases/${id}/rule-checks`)
+      .then((result) => { setRuleChecks(result); setRuleError(null); })
+      .catch(() => setRuleError('Không tải được kết quả kiểm tra bằng luật.'));
+  }, [id, caseData?.version]);
+
+  useEffect(() => {
+    if (!id || !caseData || isDemoMode) return;
+    void api.get<ScoreSuggestionResponse>(`/bcs/cases/${id}/score-suggestions`)
+      .then((result) => { setScoreSuggestions(result); setSuggestionError(null); })
+      .catch(() => setSuggestionError('Không tải được điểm gợi ý theo luật.'));
+  }, [id, caseData?.version, aiRun?.status]);
+
+  useEffect(() => {
+    if (!aiPilotEnabled || !aiRun || !['QUEUED', 'RUNNING'].includes(aiRun.status)) return;
+    const timer = window.setInterval(() => void loadAiRun(), 5000);
+    return () => window.clearInterval(timer);
+  }, [id, aiRun?.status]);
+
+  const handleQueueAiReview = async () => {
+    if (!id || aiRequestLock.current) return;
+    aiRequestLock.current = true;
+    setAiBusy(true);
+    setAiError(null);
+    try {
+      const run = await api.post<AiReviewRun>(`/bcs/cases/${id}/ai-reviews`);
+      setAiRun(run);
+    } catch (err: unknown) {
+      const message = (err as { error?: { message?: string } })?.error?.message;
+      setAiError(message || 'Không tạo được lượt phân tích.');
+    } finally {
+      aiRequestLock.current = false;
+      setAiBusy(false);
+    }
+  };
 
   // Aggregate all evidence files
   const allEvidenceFiles = useMemo(() => {
@@ -116,6 +189,49 @@ export const BcsCaseDetail: React.FC = () => {
     return sum.toFixed(2);
   }, [scores]);
 
+  const visibleRuleChecks = aiRun?.result?.rule_checks && !aiRun.stale
+    ? aiRun.result.rule_checks : ruleChecks;
+
+  const pendingEvidenceCount = caseData?.evidence_review_required_ids?.filter((fileId) =>
+    !['ACCEPT', 'REJECT_ITEM'].includes(
+      caseData.evidence_decisions?.find((item) => item.evidence_file_id === fileId)?.decision || ''
+    )
+  ).length || 0;
+
+  const handleSaveEvidenceDecision = async (evidenceId: string) => {
+    if (!caseData || evidenceRequestLock.current || isDemoMode) return;
+    const decision = evidenceChoices[evidenceId];
+    const reason = evidenceReasons[evidenceId]?.trim() || '';
+    if (!decision) {
+      setErrorMsg('Hãy chọn cách xử lý minh chứng trước khi lưu.');
+      return;
+    }
+    if (!reason) {
+      setErrorMsg('Hãy ghi căn cứ để BCS và sinh viên hiểu quyết định về minh chứng.');
+      return;
+    }
+    evidenceRequestLock.current = true;
+    setSavingEvidenceId(evidenceId);
+    setErrorMsg(null);
+    setSuccessMsg(null);
+    try {
+      await api.put(`/bcs/cases/${caseData.id}/evidence/${evidenceId}/decision`, {
+        decision, reason, expected_version: caseData.version,
+      });
+      setSuccessMsg(decision === 'REQUEST_SUPPLEMENT'
+        ? 'Đã gửi yêu cầu bổ sung minh chứng cho sinh viên.'
+        : 'Đã lưu quyết định của BCS cho minh chứng.');
+      await loadCase();
+    } catch (err: unknown) {
+      const msg = (err as { error?: { message?: string }; message?: string })?.error?.message
+        || (err as { message?: string })?.message || 'Không lưu được quyết định. Hãy tải lại hồ sơ rồi thử lại.';
+      setErrorMsg(msg);
+    } finally {
+      evidenceRequestLock.current = false;
+      setSavingEvidenceId(null);
+    }
+  };
+
   // Handle single criterion review save
   const handleSaveClaim = async (criterionId: string) => {
     if (!caseData) return;
@@ -129,15 +245,27 @@ export const BcsCaseDetail: React.FC = () => {
     if (!claim) return;
 
     const scoreNum = parseFloat(approvedScore);
-    const maxNum = parseFloat(claim.criterion.max_score);
+    const maxNum =
+      claim.criterion.code === '8b'
+        ? Math.min(parseFloat(claim.criterion.max_score), 2.0)
+        : parseFloat(claim.criterion.max_score);
 
     if (isNaN(scoreNum) || scoreNum < 0 || scoreNum > maxNum) {
-      setErrorMsg(`Điểm duyệt cho [${claim.criterion.code}] phải từ 0.00 đến ${claim.criterion.max_score}.`);
+      setErrorMsg(
+        `Điểm duyệt cho [${claim.criterion.code}] phải từ 0.00 đến ${maxNum.toFixed(2)}${
+          claim.criterion.code === '8b' ? ' (Mục 8b tối đa 2.00đ theo quy chuẩn)' : ''
+        }.`
+      );
       return;
     }
 
-    if (claim.self_score !== approvedScore && !reason.trim()) {
+    if ((caseData.draft_editable || claim.self_score !== approvedScore) && !reason.trim()) {
       setErrorMsg(`Bắt buộc nhập lý do duyệt cho tiêu chí [${claim.criterion.code}] khi khác điểm tự khai (${claim.self_score}).`);
+      return;
+    }
+    if (caseData.draft_editable && Number(approvedScore) !== Number(claim.approved_score)
+        && reason.trim() === (claim.bcs_reason || '').trim()) {
+      setErrorMsg(`Điểm dự thảo [${claim.criterion.code}] thay đổi. Hãy cập nhật căn cứ điều chỉnh mới trước khi lưu.`);
       return;
     }
 
@@ -159,7 +287,9 @@ export const BcsCaseDetail: React.FC = () => {
         });
       }
 
-      setSuccessMsg(`Đã lưu quyết định chấm tiêu chí [${claim.criterion.code}].`);
+      setSuccessMsg(caseData.draft_editable
+        ? `Đã lưu điều chỉnh dự thảo tiêu chí [${claim.criterion.code}]. BCS cần rà soát lại bảng điểm trước họp lớp.`
+        : `Đã lưu quyết định chấm tiêu chí [${claim.criterion.code}].`);
       await loadCase();
     } catch (err: unknown) {
       const msg = (err as { error?: { message?: string }; message?: string })?.error?.message || (err as { message?: string })?.message || 'Lỗi khi lưu điểm tiêu chí.';
@@ -196,6 +326,9 @@ export const BcsCaseDetail: React.FC = () => {
   // Check if complete review is valid
   const validationError = useMemo(() => {
     if (!caseData) return null;
+    if (pendingEvidenceCount > 0) {
+      return `Còn ${pendingEvidenceCount} minh chứng được gắn cờ hoặc đã phân tích AI chưa có quyết định cuối cùng của BCS.`;
+    }
     for (const claim of caseData.claims) {
       const currentScore = scores[claim.criterion.id];
       const currentReason = reasons[claim.criterion.id];
@@ -215,7 +348,7 @@ export const BcsCaseDetail: React.FC = () => {
       }
     }
     return null;
-  }, [caseData, scores, reasons]);
+  }, [caseData, scores, reasons, pendingEvidenceCount]);
 
   // Handle complete review
   const handleCompleteReview = async () => {
@@ -270,6 +403,7 @@ export const BcsCaseDetail: React.FC = () => {
     'RESOLVED',
     'FINALIZED',
   ].includes(caseData.status);
+  const canEditScores = !isProposedOrBeyond || !!caseData.draft_editable;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
@@ -339,6 +473,15 @@ export const BcsCaseDetail: React.FC = () => {
 
         {/* Action Buttons */}
         <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+          <button
+            type="button"
+            className="btn btn-secondary"
+            onClick={() => setShowPrintModal(true)}
+            style={{ fontSize: '0.825rem' }}
+          >
+            <Printer size={14} /> In phiếu đánh giá (A4)
+          </button>
+
           <button
             type="button"
             className="btn btn-secondary"
@@ -417,6 +560,153 @@ export const BcsCaseDetail: React.FC = () => {
         </div>
       )}
 
+      {!isDemoMode && (
+        <section className="card" aria-label="Kiểm tra bằng luật">
+          <h3 style={{ fontSize: '1rem', fontWeight: 700, color: '#0f172a' }}>Kiểm tra bằng luật</h3>
+          {ruleError && <p role="alert" style={{ color: '#b91c1c' }}>{ruleError}</p>}
+          {visibleRuleChecks && (
+            <>
+              <p style={{ fontSize: '0.85rem', color: '#475569', marginTop: '0.3rem' }}>
+                {visibleRuleChecks.counts.flagged} mục cần xem · {visibleRuleChecks.counts.unknown} mục chưa đủ dữ liệu.
+                {visibleRuleChecks.term_window.status === 'NOT_CONFIGURED'
+                  ? ' Chưa cấu hình khoảng ngày học kỳ nên chưa thể xét ngày trên giấy.'
+                  : ` Học kỳ: ${visibleRuleChecks.term_window.start_on} đến ${visibleRuleChecks.term_window.end_on}.`}
+              </p>
+              {visibleRuleChecks.findings.length === 0
+                ? <p style={{ fontSize: '0.85rem', color: '#64748b' }}>Chưa thấy vấn đề trong dữ liệu có cấu trúc; Ban cán sự vẫn cần xem minh chứng gốc.</p>
+                : <ul style={{ margin: '0.55rem 0 0 1.2rem', padding: 0, fontSize: '0.85rem' }}>
+                    {visibleRuleChecks.findings.map((finding, index) => (
+                      <li key={`${finding.code}-${index}`} style={{ marginBottom: '0.35rem', color: finding.level === 'FLAGGED' ? '#92400e' : '#475569' }}>
+                        {finding.criterion_code && <strong>[{finding.criterion_code}] </strong>}{finding.message}
+                      </li>
+                    ))}
+                  </ul>}
+            </>
+          )}
+        </section>
+      )}
+
+      {!isDemoMode && (
+        <section className="card" aria-label="Điểm gợi ý theo luật">
+          <h3 style={{ fontSize: '1rem', fontWeight: 700, color: '#0f172a' }}>Điểm gợi ý theo luật</h3>
+          <p style={{ fontSize: '0.85rem', color: '#64748b', marginTop: '0.3rem' }}>
+            Chỉ hỗ trợ rà soát. Ban cán sự vẫn nhập, lưu và chốt điểm; hệ thống không tự áp dụng gợi ý.
+          </p>
+          {suggestionError && <p role="alert" style={{ color: '#b91c1c' }}>{suggestionError}</p>}
+          {scoreSuggestions && (
+            <>
+              <p style={{ fontSize: '0.85rem', marginTop: '0.4rem' }}>
+                {scoreSuggestions.ready_count} mục có gợi ý · {scoreSuggestions.review_required_count} mục cần Ban cán sự xem.
+                {scoreSuggestions.draft_total !== null && ` Tổng gợi ý: ${scoreSuggestions.draft_total} điểm.`}
+              </p>
+              <details style={{ marginTop: '0.45rem' }}>
+                <summary style={{ cursor: 'pointer', fontWeight: 600 }}>Xem gợi ý từng tiêu chí</summary>
+                <ul style={{ margin: '0.55rem 0 0 1.2rem', padding: 0, fontSize: '0.85rem' }}>
+                  {scoreSuggestions.items.map((item) => (
+                    <li key={item.criterion_id} style={{ marginBottom: '0.6rem' }}>
+                      <strong>[{item.criterion_code}] {item.draft_score !== null ? `${item.draft_score} điểm` : 'Cần xem thủ công'}</strong>
+                      <div>{item.reason}</div>
+                      {item.calculation && <div style={{ color: '#475569' }}>{item.calculation}</div>}
+                      <div style={{ color: '#64748b' }}>Nguồn quy tắc: {item.clause_id}</div>
+                    </li>
+                  ))}
+                </ul>
+              </details>
+            </>
+          )}
+        </section>
+      )}
+
+      {aiPilotEnabled && (
+        <section className="card" aria-label="Hỗ trợ phân tích minh chứng">
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap', alignItems: 'center' }}>
+            <div>
+              <h3 style={{ fontSize: '1rem', fontWeight: 700, color: '#0f172a' }}>Hỗ trợ phân tích minh chứng</h3>
+              <p style={{ color: '#64748b', fontSize: '0.85rem', marginTop: '0.25rem' }}>
+                AI hỗ trợ đọc và đối chiếu minh chứng; Ban cán sự kiểm tra tệp gốc và chốt kết quả.
+              </p>
+            </div>
+            {caseData.status === 'BCS_REVIEW' && (!aiRun || aiRun.stale) && (
+              <button type="button" className="btn btn-secondary" onClick={handleQueueAiReview} disabled={aiBusy} aria-busy={aiBusy}>
+                {aiBusy && <Loader2 size={14} className="ai-spinner" aria-hidden="true" />}
+                <span role={aiBusy ? 'status' : undefined}>{aiBusy ? 'Đang gửi yêu cầu...' : 'Phân tích minh chứng'}</span>
+              </button>
+            )}
+          </div>
+          {aiError && <p role="alert" style={{ color: '#b91c1c', marginTop: '0.75rem' }}>{aiError}</p>}
+          {aiRun && (
+            <div style={{ marginTop: '0.75rem', fontSize: '0.85rem', color: '#334155' }}>
+              <div>
+                Trạng thái: {['QUEUED', 'RUNNING'].includes(aiRun.status) && <Loader2 size={14} className="ai-spinner" aria-hidden="true" />} <strong>{({
+                  QUEUED: 'Chờ xử lý', RUNNING: 'Đang xử lý', COMPLETED: 'Hoàn tất',
+                  NEEDS_HUMAN: 'Cần Ban cán sự xem', FAILED: 'Lỗi xử lý', STALE: 'Hồ sơ đã đổi',
+                } as Record<string, string>)[aiRun.status] || aiRun.status}</strong>
+                {aiRun.stale && <span style={{ color: '#b45309' }}> · Kết quả cũ không còn hiệu lực</span>}
+              </div>
+              <div style={{ color: '#64748b', marginTop: '0.25rem' }}>Phiên bản hồ sơ: {aiRun.case_version} · Quy tắc: {aiRun.rubric_version}</div>
+              {aiRun.error_code && <p role="status" style={{ color: '#b45309', marginTop: '0.35rem' }}>
+                {aiRun.error_code === 'MODEL_RATE_LIMITED'
+                  ? 'Gemini đang giới hạn lượt gọi. Hệ thống sẽ thử lại; Ban cán sự vẫn có thể xem thủ công.'
+                  : `Chưa đọc được minh chứng (${aiRun.error_code}). Ban cán sự xem thủ công.`}
+              </p>}
+              <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', marginTop: '0.5rem' }}>
+                {aiRun.steps.map((step) => (
+                  <span key={step.kind}>{step.kind === 'AI_READ' ? 'Đọc dữ liệu' : 'Đối chiếu minh chứng'}: {step.status}</span>
+                ))}
+              </div>
+              {aiRun.result?.summary && <p style={{ marginTop: '0.5rem' }}>{aiRun.result.summary}</p>}
+              {aiRun.steps.find((step) => step.kind === 'AI_READ')?.output?.files?.map((readFile) => {
+                const evidence = allEvidenceFiles.find((file) => file.id === readFile.evidence_file_id);
+                return (
+                  <details key={readFile.evidence_file_id} style={{ marginTop: '0.6rem', borderTop: '1px solid #e2e8f0', paddingTop: '0.5rem' }}>
+                    <summary style={{ cursor: 'pointer', fontWeight: 600 }}>
+                      {evidence?.original_name || readFile.evidence_file_id} · {readFile.readable ? 'Đã đọc' : 'Cần xem thủ công'}
+                    </summary>
+                    {evidence && <button type="button" className="btn btn-secondary" onClick={() => setPreviewFile(evidence)} style={{ marginTop: '0.5rem' }}>Mở minh chứng gốc</button>}
+                    {!readFile.readable && <p>{readFile.unreadable_reason}</p>}
+                    {readFile.facts.map((fact, index) => (
+                      <p key={`${fact.kind}-${index}`} style={{ marginTop: '0.4rem' }}>
+                        <strong>{fact.kind}:</strong> {fact.value} · trang {fact.page}<br />
+                        <span style={{ color: '#64748b' }}>AI trích: “{fact.source_excerpt}” — cần đối chiếu với tệp gốc.</span>
+                      </p>
+                    ))}
+                  </details>
+                );
+              })}
+              {aiRun.steps.find((step) => step.kind === 'AI_TRANSPARENCY')?.output?.assessments?.map((assessment) => {
+                const evidence = allEvidenceFiles.find((file) => file.id === assessment.evidence_file_id);
+                const verdictLabel = { SUPPORTED: 'Nội dung phù hợp', FLAGGED: 'Cần kiểm tra', UNKNOWN: 'Chưa đủ căn cứ' }[assessment.verdict];
+                return (
+                  <details key={`assessment-${assessment.evidence_file_id}`} style={{ marginTop: '0.6rem', borderTop: '1px solid #e2e8f0', paddingTop: '0.5rem' }}>
+                    <summary style={{ cursor: 'pointer', fontWeight: 600 }}>
+                      [{assessment.criterion_code}] {evidence?.original_name || assessment.evidence_file_id} · {verdictLabel}
+                    </summary>
+                    <p style={{ marginTop: '0.45rem' }}>{assessment.reason}</p>
+                    <p style={{ color: '#64748b', marginTop: '0.3rem' }}>Điều khoản: {assessment.rule_clause_id} · {assessment.rule_text}</p>
+                    {assessment.evidence_requirements && <p style={{ color: '#64748b' }}>Yêu cầu minh chứng: {assessment.evidence_requirements}</p>}
+                    {assessment.citations.map((citation, index) => (
+                      <p key={`citation-${index}`} style={{ marginTop: '0.3rem' }}>Trang {citation.page}: “{citation.source_excerpt}”</p>
+                    ))}
+                    {assessment.visual_signals.map((signal, index) => (
+                      <p key={`signal-${index}`} style={{ color: signal.concern ? '#92400e' : '#475569' }}>
+                        Dấu hiệu trên trang {signal.page}: {signal.description}
+                      </p>
+                    ))}
+                    <p style={{ color: '#92400e', marginTop: '0.3rem' }}>
+                      {assessment.authenticity === 'SUSPICIOUS'
+                        ? 'Có dấu hiệu cần kiểm tra bản gốc và đơn vị cấp.'
+                        : 'AI chưa xác minh được tính thật giả hoặc đơn vị cấp.'}
+                    </p>
+                    {assessment.limitations.map((limitation, index) => <p key={`limit-${index}`} style={{ color: '#64748b' }}>{limitation}</p>)}
+                    {evidence && <button type="button" className="btn btn-secondary" onClick={() => setPreviewFile(evidence)}>Mở minh chứng gốc</button>}
+                  </details>
+                );
+              })}
+            </div>
+          )}
+        </section>
+      )}
+
       {/* Audit History Panel */}
       {showHistory && (
         <div className="card" style={{ backgroundColor: '#f8fafc', border: '1px dashed #cbd5e1' }}>
@@ -456,6 +746,11 @@ export const BcsCaseDetail: React.FC = () => {
           <p style={{ fontSize: '0.8rem', color: '#64748b', marginBottom: '0.75rem' }}>
             Tất cả tệp PDF/JPG/PNG do sinh viên tải lên được kiểm tra mã băm SHA-256 và mở trong sandbox.
           </p>
+          {pendingEvidenceCount > 0 && (
+            <p role="status" style={{ fontSize: '0.8rem', color: '#9a3412', marginBottom: '0.75rem' }}>
+              Còn {pendingEvidenceCount} minh chứng cần BCS kết luận trước khi hoàn tất hồ sơ.
+            </p>
+          )}
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', flex: 1 }}>
             {allEvidenceFiles.length === 0 ? (
@@ -513,6 +808,42 @@ export const BcsCaseDetail: React.FC = () => {
                       <Eye size={12} /> Xem an toàn
                     </button>
                   </div>
+                  {(() => {
+                    const saved = caseData.evidence_decisions?.find((item) => item.evidence_file_id === file.id);
+                    const required = caseData.evidence_review_required_ids?.includes(file.id) || false;
+                    const editable = caseData.status === 'BCS_REVIEW' && !isDemoMode;
+                    return (
+                      <div style={{ borderTop: '1px solid #e2e8f0', marginTop: '0.5rem', paddingTop: '0.6rem', display: 'grid', gap: '0.45rem' }}>
+                        <span style={{ fontSize: '0.78rem', fontWeight: 600, color: required ? '#9a3412' : '#475569' }}>
+                          {required ? 'Cần BCS kết luận' : 'Kết luận của BCS'}: {saved ? ({ ACCEPT: 'Chấp nhận', REQUEST_SUPPLEMENT: 'Đã yêu cầu bổ sung', REJECT_ITEM: 'Từ chối tệp', HOLD: 'Tạm giữ để xác minh' }[saved.decision]) : 'Chưa có'}
+                        </span>
+                        {saved && <p style={{ fontSize: '0.75rem', color: '#475569', margin: 0 }}>Căn cứ: {saved.reason}</p>}
+                        {editable && (
+                          <>
+                            <label htmlFor={`decision-${file.id}`} style={{ fontSize: '0.75rem', fontWeight: 600 }}>Hướng xử lý minh chứng</label>
+                            <select id={`decision-${file.id}`} value={evidenceChoices[file.id] || ''}
+                              onChange={(event) => setEvidenceChoices((prev) => ({ ...prev, [file.id]: event.target.value }))}
+                              disabled={savingEvidenceId !== null}>
+                              <option value="">Chọn quyết định</option>
+                              <option value="ACCEPT">Chấp nhận tệp</option>
+                              <option value="REQUEST_SUPPLEMENT" disabled={caseData.rounds.proof >= caseData.rounds.proof_max}>Yêu cầu sinh viên bổ sung</option>
+                              <option value="REJECT_ITEM">Từ chối tệp</option>
+                              <option value="HOLD">Tạm giữ để xác minh</option>
+                            </select>
+                            <label htmlFor={`reason-${file.id}`} style={{ fontSize: '0.75rem', fontWeight: 600 }}>Căn cứ quyết định</label>
+                            <textarea id={`reason-${file.id}`} rows={2} value={evidenceReasons[file.id] || ''}
+                              onChange={(event) => setEvidenceReasons((prev) => ({ ...prev, [file.id]: event.target.value }))}
+                              placeholder="Nêu thông tin đã đối chiếu và lý do chấp nhận hoặc xử lý tiếp"
+                              disabled={savingEvidenceId !== null} />
+                            <button type="button" className="btn btn-primary" disabled={savingEvidenceId !== null || !evidenceChoices[file.id] || !evidenceReasons[file.id]?.trim()}
+                              onClick={() => void handleSaveEvidenceDecision(file.id)}>
+                              {savingEvidenceId === file.id ? 'Đang lưu quyết định...' : 'Lưu quyết định minh chứng'}
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    );
+                  })()}
                 </div>
               ))
             )}
@@ -541,8 +872,15 @@ export const BcsCaseDetail: React.FC = () => {
                 }}
               >
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                  <div style={{ fontWeight: 600, color: '#0f172a' }}>
-                    [{claim.criterion.code}] {claim.criterion.title}
+                  <div>
+                    <div style={{ fontWeight: 600, color: '#0f172a' }}>
+                      [{claim.criterion.code}] {claim.criterion.title}
+                    </div>
+                    {claim.criterion.section_title && (
+                      <div style={{ fontSize: '0.725rem', color: '#1e40af', fontWeight: 500, marginTop: '0.1rem' }}>
+                        {claim.criterion.section_title}
+                      </div>
+                    )}
                   </div>
                   {claim.criterion.requires_evidence ? (
                     <span className="badge badge-warning" style={{ fontSize: '0.7rem' }}>
@@ -566,6 +904,11 @@ export const BcsCaseDetail: React.FC = () => {
                     <strong style={{ color: '#0f172a', fontSize: '0.9rem' }}>
                       {claim.self_score !== null ? `${claim.self_score} đ` : 'Chưa nhập'}
                     </strong>
+                    {claim.academic_gpa && (
+                      <span style={{ fontSize: '0.75rem', color: '#2563eb', marginLeft: '0.35rem' }}>
+                        (GPA: {claim.academic_gpa})
+                      </span>
+                    )}
                   </span>
                 </div>
 
@@ -589,6 +932,9 @@ export const BcsCaseDetail: React.FC = () => {
               Tổng duyệt: {calculatedProposedTotal} đ
             </span>
           </div>
+          {caseData.draft_editable && <p role="status" style={{ color: '#92400e', fontSize: '0.8rem' }}>
+            Đang rà soát dự thảo sau họp BCS. Mọi điều chỉnh cần lý do và sẽ yêu cầu xác nhận lại bản dự thảo trước họp lớp.
+          </p>}
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', flex: 1 }}>
             {caseData.claims.map((claim) => {
@@ -616,24 +962,63 @@ export const BcsCaseDetail: React.FC = () => {
                     </span>
                     <button
                       type="button"
-                      disabled={isSaving || isProposedOrBeyond}
+                      disabled={isSaving || !canEditScores}
                       onClick={() => handleSaveClaim(claim.criterion.id)}
                       className="btn btn-secondary"
                       style={{ padding: '0.2rem 0.5rem', fontSize: '0.75rem' }}
                       title="Lưu tiêu chí này"
                     >
-                      <Save size={12} /> {isSaving ? '...' : 'Lưu'}
+                      <Save size={12} /> {isSaving ? 'Đang lưu...' : caseData.draft_editable ? 'Lưu điều chỉnh' : 'Lưu điểm duyệt'}
                     </button>
                   </div>
+
+                  {/* Quick Select Options for BCS */}
+                  {claim.criterion.rule_config?.options && canEditScores && (
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.3rem', marginTop: '0.2rem' }}>
+                      {claim.criterion.rule_config.options.map((opt, i) => (
+                        <button
+                          key={i}
+                          type="button"
+                          onClick={() => {
+                            const valStr = opt.score.toFixed(2);
+                            setScores({ ...scores, [claim.criterion.id]: valStr });
+                            if (valStr !== claim.self_score && !reasons[claim.criterion.id]?.trim()) {
+                              setReasons({
+                                ...reasons,
+                                [claim.criterion.id]: `Duyệt theo mức: ${opt.label}`,
+                              });
+                            }
+                          }}
+                          style={{
+                            padding: '0.15rem 0.45rem',
+                            fontSize: '0.7rem',
+                            backgroundColor:
+                              currentScore !== '' && parseFloat(currentScore) === opt.score
+                                ? '#1e40af'
+                                : '#e2e8f0',
+                            color:
+                              currentScore !== '' && parseFloat(currentScore) === opt.score
+                                ? '#ffffff'
+                                : '#334155',
+                            border: 'none',
+                            borderRadius: '3px',
+                            cursor: 'pointer',
+                          }}
+                        >
+                          {opt.label} ({opt.score}đ)
+                        </button>
+                      ))}
+                    </div>
+                  )}
 
                   {/* Input Score */}
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <label style={{ fontSize: '0.8rem', color: '#475569', fontWeight: 500 }}>
-                      Điểm được duyệt (Tối đa {claim.criterion.max_score}):
+                      Điểm được duyệt (Tối đa {claim.criterion.code === '8b' ? '2.00' : claim.criterion.max_score}):
                     </label>
                     <input
                       type="text"
-                      disabled={isProposedOrBeyond}
+                      disabled={!canEditScores}
                       value={currentScore}
                       onChange={(e) =>
                         setScores({
@@ -658,7 +1043,7 @@ export const BcsCaseDetail: React.FC = () => {
                   <div>
                     <input
                       type="text"
-                      disabled={isProposedOrBeyond}
+                      disabled={!canEditScores}
                       value={currentReason}
                       onChange={(e) =>
                         setReasons({
@@ -667,7 +1052,9 @@ export const BcsCaseDetail: React.FC = () => {
                         })
                       }
                       placeholder={
-                        isDiff
+                        caseData.draft_editable
+                          ? 'Bắt buộc nêu căn cứ điều chỉnh dự thảo...'
+                          : isDiff
                           ? 'Bắt buộc nhập lý do vì điểm duyệt khác tự khai...'
                           : 'Lý do phê duyệt (tùy chọn)...'
                       }
@@ -679,9 +1066,9 @@ export const BcsCaseDetail: React.FC = () => {
                         fontSize: '0.8rem',
                       }}
                     />
-                    {isDiff && !currentReason.trim() && (
+                    {(isDiff || caseData.draft_editable) && !currentReason.trim() && (
                       <div style={{ fontSize: '0.725rem', color: '#dc2626', marginTop: '0.2rem', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
-                        <Info size={12} /> Bắt buộc nhập lý do khi điểm duyệt khác điểm sinh viên tự khai.
+                        <Info size={12} /> {caseData.draft_editable ? 'Bắt buộc ghi căn cứ điều chỉnh dự thảo.' : 'Bắt buộc nhập lý do khi điểm duyệt khác điểm sinh viên tự khai.'}
                       </div>
                     )}
                   </div>
@@ -719,6 +1106,27 @@ export const BcsCaseDetail: React.FC = () => {
         confirmLabel="Xác nhận hoàn tất"
         onConfirm={handleCompleteReview}
         onCancel={() => setShowCompleteConfirm(false)}
+      />
+
+      {/* Print Evaluation Form Modal */}
+      <PrintEvaluationFormModal
+        isOpen={showPrintModal}
+        onClose={() => setShowPrintModal(false)}
+        campaignTitle="Đánh giá kết quả rèn luyện"
+        term="HK1-2026-2027"
+        studentName={caseData.student.full_name}
+        studentCode={caseData.student.code}
+        criteria={caseData.claims.map((c) => c.criterion)}
+        claims={caseData.claims.map((c) => ({
+          id: c.criterion.id,
+          criterion_id: c.criterion.id,
+          self_score: c.self_score,
+          student_note: c.student_note,
+          approved_score: scores[c.criterion.id] || c.approved_score,
+          bcs_reason: reasons[c.criterion.id] || c.bcs_reason,
+          evidence: c.evidence,
+        }))}
+        proposedTotal={calculatedProposedTotal}
       />
     </div>
   );

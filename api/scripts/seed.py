@@ -22,8 +22,10 @@ from api.app.models import (
     Class,
     ClassMember,
     Campaign,
-    Criterion
+    Criterion,
+    UserPosition,
 )
+from api.app.services.template_service import ensure_templates_seeded
 
 
 def run_seed():
@@ -141,6 +143,30 @@ def run_seed():
                 print(f"  + Tạo tiêu chí: {crit['code']} - {crit['title']} (Tối đa {crit['max_score']})")
             else:
                 print(f"  = Tiêu chí đã tồn tại: {crit['code']}")
+
+        # 5. Seed Evaluation Templates (Legacy Demo & 49K14.1)
+        print("  + Khởi tạo mẫu quy tắc chấm có phiên bản...")
+        ensure_templates_seeded(db)
+
+        # 6. Seed Cadre Position for demo BCS
+        bcs_user = db.query(User).filter(User.username == "bcs001").first()
+        admin_user = db.query(User).filter(User.username == "admin001").first()
+        if bcs_user and admin_user:
+            existing_pos = db.query(UserPosition).filter(
+                UserPosition.user_id == bcs_user.id,
+                UserPosition.term == "HK1-2026-2027"
+            ).first()
+            if not existing_pos:
+                pos = UserPosition(
+                    user_id=bcs_user.id,
+                    term="HK1-2026-2027",
+                    position_title="Lớp trưởng",
+                    organization="Lớp Công nghệ thông tin K46 - Minh họa",
+                    is_confirmed=True,
+                    confirmed_by=admin_user.id
+                )
+                db.add(pos)
+                print(f"  + Gán chức vụ cán bộ: {bcs_user.username} - Lớp trưởng")
 
         db.commit()
         print("[Seed] Hoàn tất seed dữ liệu thành công không tạo bản ghi trùng.")

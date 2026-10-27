@@ -2,7 +2,7 @@ import io
 import pytest
 from datetime import datetime, timezone, timedelta
 from api.tests.conftest import login_helper
-from api.app.models.entities import SupplementRequest
+from api.app.models.entities import AuditEvent, SupplementRequest
 from api.app.services.deadline_service import run_deadline_tick
 
 
@@ -148,6 +148,17 @@ def test_acceptance_criteria_7_bcs_review_score_validation_and_reasons(client, s
     assert resp_valid3.status_code == 200
     case.version = resp_valid3.json()["version"]
 
+    # Identical sample bytes across criteria are flagged; BCS must decide each file.
+    detail = client.get(f"/api/v1/bcs/cases/{case.id}", cookies=auth_bcs["cookies"]).json()
+    for evidence_id in detail["evidence_review_required_ids"]:
+        decision = client.put(
+            f"/api/v1/bcs/cases/{case.id}/evidence/{evidence_id}/decision",
+            json={"decision": "ACCEPT", "reason": "Đã đối chiếu bản gốc với tiêu chí tương ứng", "expected_version": case.version},
+            cookies=auth_bcs["cookies"], headers=auth_bcs["headers"],
+        )
+        assert decision.status_code == 200
+        case.version = decision.json()["version"]
+
     # 6. Complete review -> PROPOSED, sum = 7.00 + 8.00 + 9.00 = 24.00
     resp_comp = client.post(
         f"/api/v1/bcs/cases/{case.id}/complete-review",
@@ -158,3 +169,60 @@ def test_acceptance_criteria_7_bcs_review_score_validation_and_reasons(client, s
     assert resp_comp.status_code == 200
     assert resp_comp.json()["status"] == "PROPOSED"
     assert resp_comp.json()["proposed_total"] == "24.00"
+
+
+def test_bcs_evidence_decision_requires_human_reason_and_audits_changes(client, seed_data, db):
+    auth_sv = login_helper(client, "sv001")
+    auth_bcs = login_helper(client, "bcs001")
+    case = seed_data["cases"][0]
+    _submit_complete_case(client, auth_sv, case, seed_data["criteria"])
+    detail = client.get(f"/api/v1/bcs/cases/{case.id}", cookies=auth_bcs["cookies"]).json()
+    evidence_id = detail["evidence_review_required_ids"][0]
+    url = f"/api/v1/bcs/cases/{case.id}/evidence/{evidence_id}/decision"
+
+    unauthorized = client.put(url, json={"decision": "ACCEPT", "reason": "Đã kiểm tra", "expected_version": case.version},
+                              cookies=auth_sv["cookies"], headers=auth_sv["headers"])
+    assert unauthorized.status_code == 403
+    missing_reason = client.put(url, json={"decision": "ACCEPT", "reason": "  ", "expected_version": case.version},
+                                cookies=auth_bcs["cookies"], headers=auth_bcs["headers"])
+    assert missing_reason.status_code == 422
+    assert missing_reason.json()["error"]["code"] == "REASON_REQUIRED"
+
+    held = client.put(url, json={"decision": "HOLD", "reason": "Chờ xác minh mã chứng chỉ", "expected_version": case.version},
+                      cookies=auth_bcs["cookies"], headers=auth_bcs["headers"])
+    assert held.status_code == 200
+    case.version = held.json()["version"]
+    assert held.json()["evidence_decision"]["decision"] == "HOLD"
+    assert client.get(f"/api/v1/bcs/cases/{case.id}", cookies=auth_bcs["cookies"]).json()["evidence_decisions"][0]["reason"] == "Chờ xác minh mã chứng chỉ"
+
+    stale = client.put(url, json={"decision": "REJECT_ITEM", "reason": "Sai kỳ", "expected_version": case.version - 1},
+                       cookies=auth_bcs["cookies"], headers=auth_bcs["headers"])
+    assert stale.status_code == 409
+    rejected = client.put(url, json={"decision": "REJECT_ITEM", "reason": "Không khớp kỳ học", "expected_version": case.version},
+                          cookies=auth_bcs["cookies"], headers=auth_bcs["headers"])
+    assert rejected.status_code == 200
+    assert rejected.json()["evidence_decision"]["decision"] == "REJECT_ITEM"
+    assert db.query(AuditEvent).filter(AuditEvent.case_id == case.id, AuditEvent.action == "BCS_EVIDENCE_DECIDED").count() == 2
+    # Rejecting a file is a human evidence decision, not an automatic score change.
+    assert all(item["approved_score"] is None for item in client.get(f"/api/v1/bcs/cases/{case.id}", cookies=auth_bcs["cookies"]).json()["claims"])
+
+
+def test_bcs_evidence_supplement_opens_proof_round(client, seed_data, db):
+    auth_sv = login_helper(client, "sv001")
+    auth_bcs = login_helper(client, "bcs001")
+    case = seed_data["cases"][0]
+    _submit_complete_case(client, auth_sv, case, seed_data["criteria"])
+    detail = client.get(f"/api/v1/bcs/cases/{case.id}", cookies=auth_bcs["cookies"]).json()
+    evidence_id = detail["evidence_review_required_ids"][0]
+    response = client.put(
+        f"/api/v1/bcs/cases/{case.id}/evidence/{evidence_id}/decision",
+        json={"decision": "REQUEST_SUPPLEMENT", "reason": "Nộp bản chứng chỉ rõ số hiệu", "expected_version": case.version},
+        cookies=auth_bcs["cookies"], headers=auth_bcs["headers"],
+    )
+    assert response.status_code == 200
+    assert response.json()["status"] == "NEEDS_PROOF"
+    detail = client.get(f"/api/v1/bcs/cases/{case.id}", cookies=auth_bcs["cookies"]).json()
+    assert detail["rounds"]["proof"] == 1
+    assert detail["supplement_requests"][0]["kind"] == "PROOF"
+    assert detail["supplement_requests"][0]["reason"] == "Nộp bản chứng chỉ rõ số hiệu"
+    assert detail["evidence_decisions"][0]["decision"] == "REQUEST_SUPPLEMENT"

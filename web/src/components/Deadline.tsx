@@ -4,16 +4,17 @@ interface DeadlineProps {
   isoString: string | null | undefined;
   label?: string;
   className?: string;
+  kind?: 'deadline' | 'start';
 }
 
-export const Deadline: React.FC<DeadlineProps> = ({ isoString, label = 'Hạn chót', className = '' }) => {
+export const Deadline: React.FC<DeadlineProps> = ({ isoString, label = 'Hạn chót', className = '', kind = 'deadline' }) => {
   if (!isoString) {
     return <span className={`text-muted ${className}`}>—</span>;
   }
 
   const date = new Date(isoString);
   const now = new Date();
-  const isExpired = date.getTime() <= now.getTime();
+  const isExpired = kind === 'deadline' && date.getTime() <= now.getTime();
 
   // Format to dd/MM/yyyy HH:mm in Vietnam time (UTC+7)
   const formatter = new Intl.DateTimeFormat('vi-VN', {

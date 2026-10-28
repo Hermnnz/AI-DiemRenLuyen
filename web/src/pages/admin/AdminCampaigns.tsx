@@ -703,7 +703,7 @@ export const AdminCampaigns: React.FC = () => {
                 style={{ width: '100%', padding: '0.45rem', borderRadius: '4px', border: '1px solid #cbd5e1', fontSize: '0.85rem' }}
               />
             ) : (
-              <Deadline isoString={campaign.open_at} label="Mở" />
+              <Deadline isoString={campaign.open_at} label="Mở" kind="start" />
             )}
           </div>
 

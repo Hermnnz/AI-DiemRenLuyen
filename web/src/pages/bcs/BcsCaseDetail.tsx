@@ -37,6 +37,8 @@ export const BcsCaseDetail: React.FC = () => {
   const [scores, setScores] = useState<Record<string, string>>({});
   const [reasons, setReasons] = useState<Record<string, string>>({});
   const [savingCriterionId, setSavingCriterionId] = useState<string | null>(null);
+  const [savingAllScores, setSavingAllScores] = useState(false);
+  const saveAllScoresLock = useRef(false);
   const [evidenceChoices, setEvidenceChoices] = useState<Record<string, string>>({});
   const [evidenceReasons, setEvidenceReasons] = useState<Record<string, string>>({});
   const [savingEvidenceId, setSavingEvidenceId] = useState<string | null>(null);
@@ -58,8 +60,10 @@ export const BcsCaseDetail: React.FC = () => {
   const [suggestionError, setSuggestionError] = useState<string | null>(null);
 
   // Load case detail
-  const loadCase = async () => {
+  const loadCase = async (preserveScoreDrafts = false) => {
     if (!id) return;
+    const draftScores = scores;
+    const draftReasons = reasons;
     setLoading(true);
     setErrorMsg(null);
     try {
@@ -67,6 +71,10 @@ export const BcsCaseDetail: React.FC = () => {
       if (data) {
         setCaseData(data);
         initFormStates(data);
+        if (preserveScoreDrafts) {
+          setScores(draftScores);
+          setReasons(draftReasons);
+        }
       }
     } catch (err: unknown) {
       if (isDemoMode) {
@@ -222,7 +230,7 @@ export const BcsCaseDetail: React.FC = () => {
       setSuccessMsg(decision === 'REQUEST_SUPPLEMENT'
         ? 'Đã gửi yêu cầu bổ sung minh chứng cho sinh viên.'
         : 'Đã lưu quyết định của BCS cho minh chứng.');
-      await loadCase();
+      await loadCase(decision !== 'REQUEST_SUPPLEMENT');
     } catch (err: unknown) {
       const msg = (err as { error?: { message?: string }; message?: string })?.error?.message
         || (err as { message?: string })?.message || 'Không lưu được quyết định. Hãy tải lại hồ sơ rồi thử lại.';
@@ -297,6 +305,54 @@ export const BcsCaseDetail: React.FC = () => {
       setErrorMsg(msg);
     } finally {
       setSavingCriterionId(null);
+    }
+  };
+
+  const handleSaveAllClaims = async () => {
+    if (!caseData || caseData.status !== 'BCS_REVIEW' || saveAllScoresLock.current) return;
+    const items = [];
+    for (const claim of caseData.claims) {
+      const approvedScore = (scores[claim.criterion.id] || '').trim();
+      const reason = (reasons[claim.criterion.id] || '').trim();
+      const scoreNum = Number(approvedScore);
+      const maxNum = claim.criterion.code === '8b'
+        ? Math.min(Number(claim.criterion.max_score), 2)
+        : Number(claim.criterion.max_score);
+      if (!approvedScore || !Number.isFinite(scoreNum) || scoreNum < 0 || scoreNum > maxNum) {
+        setErrorMsg(`Điểm tiêu chí [${claim.criterion.code}] phải từ 0 đến ${maxNum.toFixed(2)}.`);
+        return;
+      }
+      if (claim.self_score !== null && scoreNum !== Number(claim.self_score) && !reason) {
+        setErrorMsg(`Tiêu chí [${claim.criterion.code}] cần lý do vì điểm BCS khác điểm sinh viên tự khai.`);
+        return;
+      }
+      items.push({ criterion_id: claim.criterion.id, approved_score: approvedScore, reason: reason || null });
+    }
+
+    saveAllScoresLock.current = true;
+    setSavingAllScores(true);
+    setErrorMsg(null);
+    setSuccessMsg(null);
+    try {
+      if (isDemoMode) {
+        let version = caseData.version;
+        for (const item of items) {
+          version = staffStore.reviewClaim(caseData.id, item.criterion_id, item.approved_score, item.reason, version).version;
+        }
+      } else {
+        await api.post(`/bcs/cases/${caseData.id}/claims/review-batch`, {
+          items, expected_version: caseData.version,
+        });
+      }
+      await loadCase();
+      setSuccessMsg(`Đã lưu điểm BCS cho ${items.length} tiêu chí. Hãy kiểm tra minh chứng cần kết luận trước khi hoàn tất.`);
+    } catch (err: unknown) {
+      const msg = (err as { error?: { message?: string }; message?: string })?.error?.message
+        || (err as { message?: string })?.message || 'Không lưu được toàn bộ điểm BCS. Hãy tải lại hồ sơ rồi thử lại.';
+      setErrorMsg(msg);
+    } finally {
+      saveAllScoresLock.current = false;
+      setSavingAllScores(false);
     }
   };
 
@@ -413,6 +469,11 @@ export const BcsCaseDetail: React.FC = () => {
   ].includes(caseData.status);
   const isReviewOpen = caseData.status === 'BCS_REVIEW';
   const canEditScores = isReviewOpen || !!caseData.draft_editable;
+  const hasUnsavedScores = isReviewOpen && caseData.claims.some((claim) =>
+    claim.approved_score === null ||
+    Number(scores[claim.criterion.id]) !== Number(claim.approved_score) ||
+    (reasons[claim.criterion.id] || '').trim() !== (claim.bcs_reason || '').trim()
+  );
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
@@ -855,7 +916,17 @@ export const BcsCaseDetail: React.FC = () => {
                           <>
                             <label htmlFor={`decision-${file.id}`} style={{ fontSize: '0.75rem', fontWeight: 600 }}>Hướng xử lý minh chứng</label>
                             <select id={`decision-${file.id}`} value={evidenceChoices[file.id] || ''}
-                              onChange={(event) => setEvidenceChoices((prev) => ({ ...prev, [file.id]: event.target.value }))}
+                              onChange={(event) => {
+                                const decision = event.target.value;
+                                setEvidenceChoices((prev) => ({ ...prev, [file.id]: decision }));
+                                if (decision === 'ACCEPT') {
+                                  setEvidenceReasons((prev) => {
+                                    const current = prev[file.id]?.trim();
+                                    if (current && (current !== saved?.reason || saved?.decision === 'ACCEPT')) return prev;
+                                    return { ...prev, [file.id]: `Thông tin trên tệp phù hợp tiêu chí [${file.criterionCode}] sau khi BCS đối chiếu.` };
+                                  });
+                                }
+                              }}
                               disabled={savingEvidenceId !== null}>
                               <option value="">Chọn quyết định</option>
                               <option value="ACCEPT">Chấp nhận tệp</option>
@@ -980,6 +1051,9 @@ export const BcsCaseDetail: React.FC = () => {
               const currentReason = reasons[claim.criterion.id] || '';
               const isDiff = (isReviewOpen || isProposedOrBeyond) && claim.self_score !== currentScore;
               const isSaving = savingCriterionId === claim.criterion.id;
+              const scoreHasUnsavedChanges = claim.approved_score === null ||
+                Number(currentScore) !== Number(claim.approved_score) ||
+                currentReason.trim() !== (claim.bcs_reason || '').trim();
 
               return (
                 <div
@@ -998,10 +1072,10 @@ export const BcsCaseDetail: React.FC = () => {
                     <span style={{ fontWeight: 600, fontSize: '0.85rem', color: '#0f172a' }}>
                       [{claim.criterion.code}] {claim.criterion.title}
                     </span>
-                    {isReviewOpen && <span style={{ fontSize: '0.72rem', color: claim.approved_score === null ? '#9a3412' : '#047857' }}>
-                      {claim.approved_score === null ? 'Chưa lưu quyết định BCS' : 'Đã lưu quyết định BCS'}
+                    {isReviewOpen && <span style={{ fontSize: '0.72rem', color: scoreHasUnsavedChanges ? '#9a3412' : '#047857' }}>
+                      {claim.approved_score === null ? 'Chưa lưu quyết định BCS' : scoreHasUnsavedChanges ? 'Có thay đổi chưa lưu' : 'Đã lưu quyết định BCS'}
                     </span>}
-                    {canEditScores && <button
+                    {caseData.draft_editable && <button
                       type="button"
                       disabled={isSaving || !canEditScores}
                       onClick={() => handleSaveClaim(claim.criterion.id)}
@@ -1117,6 +1191,13 @@ export const BcsCaseDetail: React.FC = () => {
               );
             })}
           </div>
+          {isReviewOpen && (
+            <button type="button" className="btn btn-primary" onClick={() => void handleSaveAllClaims()}
+              disabled={savingAllScores || !hasUnsavedScores}
+              style={{ marginTop: '1rem', alignSelf: 'flex-end' }}>
+              <Save size={16} /> {savingAllScores ? 'Đang lưu toàn bộ điểm...' : hasUnsavedScores ? 'Lưu toàn bộ điểm BCS' : 'Đã lưu toàn bộ điểm BCS'}
+            </button>
+          )}
         </div>
       </div>
 

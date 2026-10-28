@@ -42,6 +42,8 @@ from api.app.schemas import (
     CreateSupplementRequest,
     ReviewClaimRequest,
     ReviewClaimResponse,
+    ReviewClaimsBatchRequest,
+    ReviewClaimsBatchResponse,
     ClaimSchema,
     CompleteReviewRequest,
     CompleteReviewResponse,
@@ -697,6 +699,71 @@ def review_claim(
             ],
         ),
     )
+
+
+@router.post("/cases/{caseId}/claims/review-batch", response_model=ReviewClaimsBatchResponse, dependencies=[Depends(verify_csrf)])
+def review_claims_batch(
+    caseId: str,
+    payload: ReviewClaimsBatchRequest,
+    auth_data: tuple[User, list[str]] = Depends(require_roles("BCS")),
+    db: Session = Depends(get_db),
+):
+    user, class_ids = auth_data
+    case = db.query(Case).filter(Case.id == caseId).with_for_update().first()
+    if not case:
+        raise AppError(status_code=404, code="NOT_FOUND", message="Không tìm thấy hồ sơ.")
+    campaign = db.query(Campaign).filter(Campaign.id == case.campaign_id).first()
+    _verify_bcs_class(user, class_ids, campaign.class_id)
+    if case.version != payload.expected_version:
+        raise AppError(status_code=409, code="CASE_CHANGED", message="Hồ sơ đã thay đổi, vui lòng tải lại.")
+    if case.status != "BCS_REVIEW":
+        raise AppError(status_code=409, code="INVALID_STATE", message="Chỉ có thể lưu toàn bộ điểm khi hồ sơ đang chờ BCS kiểm tra.")
+
+    criteria = db.query(Criterion).filter(Criterion.campaign_id == campaign.id).all()
+    criterion_map = {criterion.id: criterion for criterion in criteria}
+    item_map = {item.criterion_id: item for item in payload.items}
+    if len(item_map) != len(payload.items) or set(item_map) != set(criterion_map):
+        raise AppError(status_code=422, code="INVALID_CRITERIA_SET", message="Hãy gửi đúng một điểm duyệt cho mỗi tiêu chí trong đợt đánh giá.")
+
+    claims = {claim.criterion_id: claim for claim in db.query(Claim).filter(Claim.case_id == case.id).all()}
+    prepared = []
+    for criterion in criteria:
+        item = item_map[criterion.id]
+        score = parse_score(item.approved_score)
+        validate_score_bounds(score, criterion.max_score, field_name=criterion.code)
+        validate_criterion_levels(criterion.code, score)
+        claim = claims.get(criterion.id)
+        reason = (item.reason or "").strip()
+        if claim and claim.self_score is not None and score != claim.self_score and not reason:
+            raise AppError(status_code=422, code="REASON_REQUIRED", message=f"Tiêu chí {criterion.code} cần lý do khi điểm BCS khác điểm sinh viên tự khai.")
+        prepared.append((criterion, claim, score, reason))
+
+    before_scores = [
+        {"criterion_id": criterion.id, "approved_score": format_score(claim.approved_score) if claim else None,
+         "reason": claim.bcs_reason if claim else None}
+        for criterion, claim, _, _ in prepared
+    ]
+    now = datetime.now(timezone.utc)
+    for criterion, claim, score, reason in prepared:
+        if claim is None:
+            claim = Claim(case_id=case.id, criterion_id=criterion.id)
+            db.add(claim)
+        claim.approved_score = score
+        claim.bcs_reason = reason or None
+        claim.reviewed_by = user.id
+        claim.reviewed_at = now
+    case.version += 1
+    case.updated_at = now
+    log_audit(
+        db, campaign_id=campaign.id, case_id=case.id, action="BCS_SCORES_REVIEWED_BATCH",
+        actor_user_id=user.id, before_json={"scores": before_scores},
+        after_json={"scores": [
+            {"criterion_id": criterion.id, "approved_score": format_score(score), "reason": reason or None}
+            for criterion, _, score, reason in prepared
+        ], "version": case.version},
+    )
+    db.commit()
+    return ReviewClaimsBatchResponse(case_id=case.id, version=case.version, reviewed_count=len(criteria))
 
 
 @router.post("/cases/{caseId}/complete-review", response_model=CompleteReviewResponse, dependencies=[Depends(verify_csrf)])

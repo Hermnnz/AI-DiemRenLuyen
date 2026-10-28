@@ -148,6 +148,23 @@ class ReviewClaimResponse(BaseModel):
     claim: ClaimSchema
 
 
+class ReviewClaimsBatchItem(BaseModel):
+    criterion_id: str
+    approved_score: str
+    reason: Optional[str] = None
+
+
+class ReviewClaimsBatchRequest(BaseModel):
+    items: List[ReviewClaimsBatchItem] = Field(min_length=1)
+    expected_version: int
+
+
+class ReviewClaimsBatchResponse(BaseModel):
+    case_id: str
+    version: int
+    reviewed_count: int
+
+
 # Supplement Request
 class SupplementRequestSchema(BaseModel):
     id: str

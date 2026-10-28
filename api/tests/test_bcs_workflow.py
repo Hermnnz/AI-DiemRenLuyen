@@ -207,6 +207,61 @@ def test_bcs_evidence_decision_requires_human_reason_and_audits_changes(client, 
     assert all(item["approved_score"] is None for item in client.get(f"/api/v1/bcs/cases/{case.id}", cookies=auth_bcs["cookies"]).json()["claims"])
 
 
+def test_bcs_batch_review_saves_all_scores_once(client, seed_data, db):
+    auth_sv = login_helper(client, "sv001")
+    auth_bcs = login_helper(client, "bcs001")
+    case = seed_data["cases"][0]
+    criteria = seed_data["criteria"]
+    _submit_complete_case(client, auth_sv, case, criteria)
+    url = f"/api/v1/bcs/cases/{case.id}/claims/review-batch"
+    version_before = case.version
+    payload = {
+        "expected_version": version_before,
+        "items": [
+            {"criterion_id": criteria[0].id, "approved_score": "7.00", "reason": "Đối chiếu minh chứng được 7 điểm"},
+            *({"criterion_id": criterion.id, "approved_score": "8.00", "reason": None} for criterion in criteria[1:]),
+        ],
+    }
+    forbidden = client.post(url, json=payload, cookies=auth_sv["cookies"], headers=auth_sv["headers"])
+    assert forbidden.status_code == 403
+    response = client.post(url, json=payload, cookies=auth_bcs["cookies"], headers=auth_bcs["headers"])
+    assert response.status_code == 200
+    assert response.json()["reviewed_count"] == len(criteria)
+    assert response.json()["version"] == version_before + 1
+    detail = client.get(f"/api/v1/bcs/cases/{case.id}", cookies=auth_bcs["cookies"]).json()
+    by_id = {claim["criterion"]["id"]: claim for claim in detail["claims"]}
+    assert by_id[criteria[0].id]["approved_score"] == "7.00"
+    assert all(by_id[criterion.id]["approved_score"] == "8.00" for criterion in criteria[1:])
+    assert db.query(AuditEvent).filter(AuditEvent.case_id == case.id, AuditEvent.action == "BCS_SCORES_REVIEWED_BATCH").count() == 1
+    stale = client.post(url, json=payload, cookies=auth_bcs["cookies"], headers=auth_bcs["headers"])
+    assert stale.status_code == 409
+
+
+def test_bcs_batch_review_rejects_invalid_set_without_partial_save(client, seed_data):
+    auth_sv = login_helper(client, "sv001")
+    auth_bcs = login_helper(client, "bcs001")
+    case = seed_data["cases"][0]
+    criteria = seed_data["criteria"]
+    url = f"/api/v1/bcs/cases/{case.id}/claims/review-batch"
+    draft_items = [{"criterion_id": criterion.id, "approved_score": "8.00"} for criterion in criteria]
+    closed_state = client.post(url, json={"items": draft_items, "expected_version": case.version},
+                               cookies=auth_bcs["cookies"], headers=auth_bcs["headers"])
+    assert closed_state.status_code == 409
+    _submit_complete_case(client, auth_sv, case, criteria)
+    items = [{"criterion_id": criterion.id, "approved_score": "8.00"} for criterion in criteria]
+    items[-1]["approved_score"] = "99.00"
+    invalid = client.post(url, json={"items": items, "expected_version": case.version},
+                          cookies=auth_bcs["cookies"], headers=auth_bcs["headers"])
+    assert invalid.status_code == 422
+    detail = client.get(f"/api/v1/bcs/cases/{case.id}", cookies=auth_bcs["cookies"]).json()
+    assert detail["version"] == case.version
+    assert all(claim["approved_score"] is None for claim in detail["claims"])
+    missing = client.post(url, json={"items": items[:-1], "expected_version": case.version},
+                          cookies=auth_bcs["cookies"], headers=auth_bcs["headers"])
+    assert missing.status_code == 422
+    assert missing.json()["error"]["code"] == "INVALID_CRITERIA_SET"
+
+
 def test_bcs_evidence_supplement_opens_proof_round(client, seed_data, db):
     auth_sv = login_helper(client, "sv001")
     auth_bcs = login_helper(client, "bcs001")

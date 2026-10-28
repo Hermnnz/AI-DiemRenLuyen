@@ -645,6 +645,69 @@ paths:
         '422':
           $ref: '#/components/responses/Error422'
 
+  /bcs/cases/{caseId}/claims/review-batch:
+    post:
+      summary: BCS lưu điểm duyệt cho toàn bộ tiêu chí trong một lần
+      description: Chỉ dùng khi hồ sơ ở BCS_REVIEW; toàn bộ tiêu chí được kiểm tra và lưu trong một giao dịch. Điểm khác điểm tự khai phải có reason.
+      operationId: reviewBcsClaimsBatch
+      parameters:
+        - name: caseId
+          in: path
+          required: true
+          schema:
+            type: string
+            format: uuid
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [items, expected_version]
+              properties:
+                expected_version:
+                  type: integer
+                items:
+                  type: array
+                  minItems: 1
+                  items:
+                    type: object
+                    required: [criterion_id, approved_score]
+                    properties:
+                      criterion_id:
+                        type: string
+                        format: uuid
+                      approved_score:
+                        type: string
+                        example: "7.00"
+                      reason:
+                        type: string
+                        nullable: true
+      responses:
+        '200':
+          description: Đã lưu toàn bộ điểm BCS
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [case_id, version, reviewed_count]
+                properties:
+                  case_id:
+                    type: string
+                    format: uuid
+                  version:
+                    type: integer
+                  reviewed_count:
+                    type: integer
+        '401':
+          $ref: '#/components/responses/Error401'
+        '403':
+          $ref: '#/components/responses/Error403'
+        '409':
+          $ref: '#/components/responses/Error409'
+        '422':
+          $ref: '#/components/responses/Error422'
+
   /bcs/cases/{caseId}/claims/{criterionId}/review:
     put:
       summary: BCS duyệt điểm cho một tiêu chí

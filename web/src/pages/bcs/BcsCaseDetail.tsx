@@ -192,11 +192,12 @@ export const BcsCaseDetail: React.FC = () => {
   const visibleRuleChecks = aiRun?.result?.rule_checks && !aiRun.stale
     ? aiRun.result.rule_checks : ruleChecks;
 
-  const pendingEvidenceCount = caseData?.evidence_review_required_ids?.filter((fileId) =>
+  const pendingEvidenceIds = caseData?.evidence_review_required_ids?.filter((fileId) =>
     !['ACCEPT', 'REJECT_ITEM'].includes(
       caseData.evidence_decisions?.find((item) => item.evidence_file_id === fileId)?.decision || ''
     )
-  ).length || 0;
+  ) || [];
+  const pendingEvidenceCount = pendingEvidenceIds.length;
 
   const handleSaveEvidenceDecision = async (evidenceId: string) => {
     if (!caseData || evidenceRequestLock.current || isDemoMode) return;
@@ -522,6 +523,19 @@ export const BcsCaseDetail: React.FC = () => {
       </div>
 
       {/* Notifications / Alerts */}
+      {pendingEvidenceCount > 0 && (
+        <div className="student-alert student-alert-warning" role="status">
+          <AlertTriangle size={18} style={{ flexShrink: 0 }} />
+          <span style={{ flex: 1 }}>
+            Còn {pendingEvidenceCount} minh chứng cần kết luận. Mở tệp ở vùng “Minh chứng gốc”, chọn hướng xử lý, nhập căn cứ rồi bấm “Lưu quyết định minh chứng”.
+          </span>
+          <button type="button" className="btn btn-secondary" onClick={() =>
+            document.getElementById(`evidence-review-${pendingEvidenceIds[0]}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+          }>
+            Đến minh chứng cần xử lý
+          </button>
+        </div>
+      )}
       {errorMsg && (
         <div
           style={{
@@ -770,6 +784,7 @@ export const BcsCaseDetail: React.FC = () => {
               allEvidenceFiles.map((file) => (
                 <div
                   key={file.id}
+                  id={`evidence-review-${file.id}`}
                   style={{
                     border: '1px solid #cbd5e1',
                     borderRadius: '6px',
@@ -1116,17 +1131,17 @@ export const BcsCaseDetail: React.FC = () => {
         term="HK1-2026-2027"
         studentName={caseData.student.full_name}
         studentCode={caseData.student.code}
+        showClassScores={isProposedOrBeyond}
         criteria={caseData.claims.map((c) => c.criterion)}
         claims={caseData.claims.map((c) => ({
           id: c.criterion.id,
           criterion_id: c.criterion.id,
           self_score: c.self_score,
           student_note: c.student_note,
-          approved_score: scores[c.criterion.id] || c.approved_score,
-          bcs_reason: reasons[c.criterion.id] || c.bcs_reason,
+          approved_score: c.approved_score,
+          bcs_reason: c.bcs_reason,
           evidence: c.evidence,
         }))}
-        proposedTotal={calculatedProposedTotal}
       />
     </div>
   );

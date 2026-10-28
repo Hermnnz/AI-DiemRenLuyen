@@ -13,6 +13,7 @@ interface PrintEvaluationFormModalProps {
   facultyName?: string;
   criteria: Criterion[];
   claims: Claim[];
+  showClassScores?: boolean;
   proposedTotal?: string | null;
   claimedTotal?: string | null;
 }
@@ -28,6 +29,7 @@ export const PrintEvaluationFormModal: React.FC<PrintEvaluationFormModalProps> =
   facultyName = '',
   criteria,
   claims,
+  showClassScores = false,
   proposedTotal,
   claimedTotal,
 }) => {
@@ -73,7 +75,9 @@ export const PrintEvaluationFormModal: React.FC<PrintEvaluationFormModalProps> =
     secCriteria.forEach((crit) => {
       const cl = claimMap[crit.id];
       if (cl?.self_score) selfSum += parseFloat(cl.self_score) || 0;
-      if (cl?.approved_score) apprSum += parseFloat(cl.approved_score) || 0;
+      if (showClassScores && cl?.approved_score !== null && cl?.approved_score !== undefined) {
+        apprSum += parseFloat(cl.approved_score) || 0;
+      }
     });
     return {
       selfRaw: selfSum,
@@ -95,7 +99,9 @@ export const PrintEvaluationFormModal: React.FC<PrintEvaluationFormModalProps> =
 
   // If proposedTotal or claimedTotal provided from backend, use them as authoritative
   const finalSelfScore = claimedTotal !== undefined && claimedTotal !== null ? claimedTotal : totalSelf.toFixed(2);
-  const finalApprScore = proposedTotal !== undefined && proposedTotal !== null ? proposedTotal : totalAppr.toFixed(2);
+  const finalApprScore = showClassScores
+    ? (proposedTotal !== undefined && proposedTotal !== null ? proposedTotal : totalAppr.toFixed(2))
+    : null;
 
   // Rating based on Parameters sheet
   const getRating = (scoreStr: string) => {
@@ -350,7 +356,7 @@ export const PrintEvaluationFormModal: React.FC<PrintEvaluationFormModalProps> =
                           {selfCapped.toFixed(2)}
                         </td>
                         <td style={{ border: '1px solid #000', textAlign: 'center', padding: '5px 4px', color: '#047857' }}>
-                          {apprCapped > 0 ? apprCapped.toFixed(2) : '-'}
+                          {showClassScores ? apprCapped.toFixed(2) : '-'}
                         </td>
                       </tr>
 
@@ -358,7 +364,8 @@ export const PrintEvaluationFormModal: React.FC<PrintEvaluationFormModalProps> =
                       {secCriteria.map((crit, critIdx) => {
                         const cl = claimMap[crit.id];
                         const selfScore = cl?.self_score ? parseFloat(cl.self_score).toFixed(2) : '-';
-                        const apprScore = cl?.approved_score ? parseFloat(cl.approved_score).toFixed(2) : '-';
+                        const apprScore = showClassScores && cl?.approved_score !== null && cl?.approved_score !== undefined
+                          ? parseFloat(cl.approved_score).toFixed(2) : '-';
 
                         return (
                           <tr key={crit.id}>
@@ -413,7 +420,7 @@ export const PrintEvaluationFormModal: React.FC<PrintEvaluationFormModalProps> =
                     {finalSelfScore}
                   </td>
                   <td style={{ border: '1px solid #000', textAlign: 'center', padding: '8px', color: '#047857' }}>
-                    {finalApprScore !== '0.00' ? finalApprScore : finalSelfScore}
+                    {finalApprScore ?? '-'}
                   </td>
                 </tr>
 
@@ -423,7 +430,7 @@ export const PrintEvaluationFormModal: React.FC<PrintEvaluationFormModalProps> =
                     Xếp loại rèn luyện (Tham khảo sheet Parameters)
                   </td>
                   <td colSpan={3} style={{ border: '1px solid #000', textAlign: 'center', padding: '6px', color: '#b45309' }}>
-                    {getRating(finalApprScore !== '0.00' ? finalApprScore : finalSelfScore)}
+                    {finalApprScore !== null ? getRating(finalApprScore) : 'Chờ Ban cán sự hoàn tất đánh giá'}
                   </td>
                 </tr>
               </tbody>

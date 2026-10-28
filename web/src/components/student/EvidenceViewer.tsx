@@ -1,11 +1,11 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { EvidenceFile } from '../../api/types';
 import { FileText, Image as ImageIcon, Trash2, Download } from 'lucide-react';
 
 interface EvidenceViewerProps {
   evidence: EvidenceFile;
   canRemove?: boolean;
-  onRemove?: (fileId: string) => void;
+  onRemove?: (fileId: string) => Promise<void>;
 }
 
 export const EvidenceViewer: React.FC<EvidenceViewerProps> = ({
@@ -13,6 +13,7 @@ export const EvidenceViewer: React.FC<EvidenceViewerProps> = ({
   canRemove = false,
   onRemove,
 }) => {
+  const [isRemoving, setIsRemoving] = useState(false);
   const isImage = evidence.mime_type.startsWith('image/');
   const sizeFormatted = (evidence.size_bytes / 1024).toFixed(1) + ' KB';
 
@@ -72,7 +73,16 @@ export const EvidenceViewer: React.FC<EvidenceViewerProps> = ({
         {canRemove && onRemove && (
           <button
             type="button"
-            onClick={() => onRemove(evidence.id)}
+            onClick={async () => {
+              if (isRemoving) return;
+              setIsRemoving(true);
+              try {
+                await onRemove(evidence.id);
+              } finally {
+                setIsRemoving(false);
+              }
+            }}
+            disabled={isRemoving}
             className="btn btn-secondary"
             style={{
               padding: '0.2rem 0.5rem',
@@ -83,7 +93,7 @@ export const EvidenceViewer: React.FC<EvidenceViewerProps> = ({
             title="Xóa tệp minh chứng"
           >
             <Trash2 size={14} />
-            <span>Xóa</span>
+            <span>{isRemoving ? 'Đang xóa...' : 'Xóa'}</span>
           </button>
         )}
       </div>

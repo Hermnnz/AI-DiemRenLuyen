@@ -305,6 +305,11 @@ class StudentService {
     criterionId: string,
     fileId: string
   ): Promise<void> {
+    if (this.mode === 'live') {
+      const api = await getApi();
+      await api.delete(`/student/cases/${caseId}/evidence/${fileId}`);
+      return;
+    }
     const state = this.getMockState();
     const claim = state.claims.find((c) => c.criterion_id === criterionId);
     if (claim) {
@@ -349,7 +354,7 @@ class StudentService {
     const missing: string[] = [];
     for (const crit of state.criteria) {
       const claim = state.claims.find((c) => c.criterion_id === crit.id);
-      if (crit.requires_evidence && (!claim || !claim.evidence || claim.evidence.length === 0)) {
+      if (crit.requires_evidence && Number(claim?.self_score || 0) > 0 && (!claim?.evidence || claim.evidence.length === 0)) {
         missing.push(`Tiêu chí ${crit.code}: thiếu minh chứng bắt buộc`);
       }
     }

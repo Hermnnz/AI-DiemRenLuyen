@@ -19,7 +19,7 @@ def get_file(
 ):
     user, class_ids = auth_data
 
-    ev = db.query(EvidenceFile).filter(EvidenceFile.id == fileId).first()
+    ev = db.query(EvidenceFile).filter(EvidenceFile.id == fileId, EvidenceFile.is_current.is_(True)).first()
     if not ev:
         raise AppError(status_code=404, code="NOT_FOUND", message="Không tìm thấy tệp minh chứng.")
 

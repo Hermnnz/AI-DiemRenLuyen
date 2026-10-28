@@ -575,6 +575,43 @@ async def upload_evidence(
     )
 
 
+@router.delete("/cases/{caseId}/evidence/{fileId}", dependencies=[Depends(verify_csrf)])
+def remove_evidence(
+    caseId: str,
+    fileId: str,
+    auth_data: tuple[User, list[str]] = Depends(require_roles("STUDENT")),
+    db: Session = Depends(get_db),
+):
+    student_user, _ = auth_data
+    case = db.query(Case).filter(Case.id == caseId).first()
+    if not case:
+        raise AppError(status_code=404, code="NOT_FOUND", message="Không tìm thấy hồ sơ.")
+    if case.student_id != student_user.id:
+        raise AppError(status_code=403, code="FORBIDDEN", message="Bạn không có quyền xóa minh chứng của hồ sơ này.")
+    if case.status not in {"DRAFT", "NEEDS_INFO", "NEEDS_PROOF"}:
+        raise AppError(status_code=409, code="INVALID_STATE", message="Hồ sơ đã nộp, không thể xóa minh chứng lúc này.")
+
+    evidence = (
+        db.query(EvidenceFile)
+        .join(Claim, EvidenceFile.claim_id == Claim.id)
+        .filter(EvidenceFile.id == fileId, EvidenceFile.is_current.is_(True), Claim.case_id == caseId)
+        .first()
+    )
+    if not evidence:
+        raise AppError(status_code=404, code="NOT_FOUND", message="Không tìm thấy minh chứng đang sử dụng trong hồ sơ.")
+
+    evidence.is_current = False
+    case.version += 1
+    case.updated_at = datetime.now(timezone.utc)
+    log_audit(
+        db, campaign_id=case.campaign_id, case_id=case.id,
+        action="STUDENT_EVIDENCE_REMOVED", actor_user_id=student_user.id,
+        before_json={"evidence_file_id": evidence.id, "criterion_id": evidence.claim.criterion_id},
+    )
+    db.commit()
+    return {"case_id": case.id, "version": case.version, "evidence_file_id": fileId, "removed": True}
+
+
 @router.post("/cases/{caseId}/submit", response_model=SubmitCaseResponse, dependencies=[Depends(verify_csrf)])
 def submit_case(
     caseId: str,

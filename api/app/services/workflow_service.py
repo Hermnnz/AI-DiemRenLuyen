@@ -163,7 +163,7 @@ def submit_student_case(
             validate_score_bounds(cl.self_score, crit.max_score, field_name=crit.code)
             claimed_scores.append(cl.self_score)
 
-        if crit.requires_evidence:
+        if crit.requires_evidence and cl.self_score is not None and cl.self_score > 0:
             has_evidence = (
                 db.query(EvidenceFile)
                 .filter(EvidenceFile.claim_id == cl.id, EvidenceFile.is_current.is_(True))

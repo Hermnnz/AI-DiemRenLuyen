@@ -23,8 +23,10 @@ import {
   Layers,
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import { useAuth } from '../../context/AuthContext';
 
 export const StudentSubmission: React.FC = () => {
+  const { user } = useAuth();
   const [data, setData] = useState<StudentCurrentResponse | null>(null);
   const [claimsMap, setClaimsMap] = useState<Record<string, { self_score: string | null; student_note: string | null }>>({});
   const [isLoading, setIsLoading] = useState<boolean>(true);
@@ -717,10 +719,13 @@ export const StudentSubmission: React.FC = () => {
         onClose={() => setShowPrintModal(false)}
         campaignTitle={campaign.title}
         term={campaign.term}
-        studentName="Sinh viên"
-        studentCode="SV-CURRENT"
+        studentName={user?.full_name || 'Sinh viên'}
+        studentCode={user?.username || ''}
         criteria={criteria}
-        claims={claims}
+        claims={claims.map((claim) => {
+          const draft = claimsMap[claim.criterion_id];
+          return draft ? { ...claim, self_score: draft.self_score, student_note: draft.student_note } : claim;
+        })}
         claimedTotal={claimedTotal}
       />
     </div>

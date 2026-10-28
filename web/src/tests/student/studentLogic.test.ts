@@ -228,9 +228,8 @@ describe('Gói B - Logic Frontend Sinh viên', () => {
     });
 
     test('Nộp hồ sơ khi thiếu minh chứng bắt buộc -> chuyển NEEDS_INFO', async () => {
-      studentService.setScenario('DRAFT');
-      // DRAFT ban đầu chưa có minh chứng cho TC01 và TC03 (requires_evidence = true)
-      const res = await studentService.submitCase('55555555-5555-5555-5555-555555555001', 1);
+      studentService.setScenario('NEEDS_INFO');
+      const res = await studentService.submitCase('55555555-5555-5555-5555-555555555001', 2);
       assert.strictEqual(res.status, 'NEEDS_INFO');
       assert.ok(res.missing_items.length > 0);
     });

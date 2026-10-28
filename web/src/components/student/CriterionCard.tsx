@@ -97,8 +97,9 @@ export const CriterionCard: React.FC<CriterionCardProps> = ({
     const formatted = optScore.toFixed(2);
     setScoreInput(formatted);
     setScoreError(null);
-    const newNote = noteInput.trim() ? noteInput : optLabel;
-    if (!noteInput.trim()) setNoteInput(newNote);
+    const previousNoteIsOption = criterion.rule_config?.options?.some((option) => option.label === noteInput.trim());
+    const newNote = !noteInput.trim() || previousNoteIsOption ? optLabel : noteInput;
+    setNoteInput(newNote);
     onClaimChange(criterion.id, formatted, newNote);
   };
 
@@ -137,6 +138,8 @@ export const CriterionCard: React.FC<CriterionCardProps> = ({
   };
 
   const hasEvidence = claim.evidence && claim.evidence.length > 0;
+  const needsEvidenceNow = criterion.requires_evidence && Number(scoreInput) > 0;
+  const showEvidenceSection = criterion.requires_evidence || !!criterion.evidence_notes || hasEvidence || !!supplementRequest;
   const isFlagged = !!supplementRequest;
   const options = criterion.rule_config?.options;
 
@@ -196,7 +199,7 @@ export const CriterionCard: React.FC<CriterionCardProps> = ({
               </span>
             )}
 
-            {criterion.requires_evidence && !isSystemLocked && (
+            {needsEvidenceNow && !isSystemLocked && (
               <span
                 style={{
                   fontSize: '0.75rem',
@@ -243,7 +246,7 @@ export const CriterionCard: React.FC<CriterionCardProps> = ({
                 borderRadius: '0 4px 4px 0',
               }}
             >
-              <strong>Yêu cầu minh chứng:</strong> {criterion.evidence_notes}
+              <strong>{criterion.requires_evidence ? 'Minh chứng khi có điểm:' : 'Minh chứng có thể đính kèm:'}</strong> {criterion.evidence_notes}
             </div>
           )}
         </div>
@@ -448,13 +451,13 @@ export const CriterionCard: React.FC<CriterionCardProps> = ({
             </div>
           )}
 
-          {/* 5. Vùng quản lý tệp minh chứng: CHỈ HIỂN THỊ KHI TIÊU CHÍ YÊU CẦU MINH CHỨNG */}
-          {criterion.requires_evidence && (
+          {/* Cho phép đính kèm cả ở tiêu chí có minh chứng gợi ý hoặc yêu cầu bổ sung. */}
+          {showEvidenceSection && (
             <div className="evidence-section">
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <span style={{ fontSize: '0.8125rem', fontWeight: 600, color: hasEvidence ? '#15803d' : '#b91c1c' }}>
                   Tệp minh chứng ({claim.evidence?.length || 0})
-                  {!hasEvidence && parseFloat(scoreInput) > 0 && (
+                  {!hasEvidence && needsEvidenceNow && (
                     <span style={{ marginLeft: '0.35rem', color: '#dc2626' }}>* Bắt buộc đính kèm khi chấm điểm</span>
                   )}
                 </span>
@@ -489,7 +492,7 @@ export const CriterionCard: React.FC<CriterionCardProps> = ({
                   <span>{uploadError}</span>
                 </div>
               )}
-              {evidenceWarning && !uploadError && (
+              {evidenceWarning && needsEvidenceNow && !uploadError && (
                 <div className="student-alert student-alert-info" style={{ marginTop: '0.5rem', padding: '0.5rem 0.75rem' }}>
                   <Info size={16} />
                   <span>Tiêu chí này bắt buộc minh chứng. Vui lòng tải tệp lên trước khi nộp hồ sơ.</span>

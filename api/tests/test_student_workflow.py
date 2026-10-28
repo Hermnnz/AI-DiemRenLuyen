@@ -148,6 +148,53 @@ def test_acceptance_criteria_4_submit_missing_evidence_creates_needs_info(client
     assert resp_resub.json()["missing_items"] == []
 
 
+def test_zero_point_claims_do_not_require_evidence(client, seed_data):
+    auth = login_helper(client, "sv001")
+    case = seed_data["cases"][0]
+    for version, criterion in enumerate(seed_data["criteria"], start=1):
+        response = client.put(
+            f"/api/v1/student/cases/{case.id}/claims/{criterion.id}",
+            json={"self_score": "0.00", "expected_version": version},
+            cookies=auth["cookies"], headers=auth["headers"],
+        )
+        assert response.status_code == 200
+
+    submitted = client.post(
+        f"/api/v1/student/cases/{case.id}/submit",
+        json={"expected_version": 4}, cookies=auth["cookies"], headers=auth["headers"],
+    )
+    assert submitted.status_code == 200
+    assert submitted.json()["status"] == "BCS_REVIEW"
+    assert submitted.json()["missing_items"] == []
+
+
+def test_student_removes_own_evidence_only_while_editable(client, seed_data):
+    owner = login_helper(client, "sv001")
+    other = login_helper(client, "sv002")
+    case = seed_data["cases"][0]
+    criterion = seed_data["criteria"][0]
+    uploaded = client.post(
+        f"/api/v1/student/cases/{case.id}/evidence",
+        data={"criterion_id": criterion.id},
+        files={"file": ("proof.pdf", io.BytesIO(b"%PDF-1.4 proof"), "application/pdf")},
+        cookies=owner["cookies"], headers=owner["headers"],
+    )
+    assert uploaded.status_code == 201
+    file_id = uploaded.json()["id"]
+    url = f"/api/v1/student/cases/{case.id}/evidence/{file_id}"
+
+    forbidden = client.delete(url, cookies=other["cookies"], headers=other["headers"])
+    assert forbidden.status_code == 403
+    removed = client.delete(url, cookies=owner["cookies"], headers=owner["headers"])
+    assert removed.status_code == 200
+    assert removed.json()["removed"] is True
+    assert removed.json()["version"] == 2
+    assert client.get(f"/api/v1/files/{file_id}", cookies=owner["cookies"]).status_code == 404
+    current = client.get("/api/v1/student/current", cookies=owner["cookies"]).json()
+    assert not next(cl for cl in current["claims"] if cl["criterion_id"] == criterion.id)["evidence"]
+    assert client.delete(url, cookies=owner["cookies"], headers=owner["headers"]).status_code == 404
+
+
 def test_acceptance_criteria_5_exceeding_info_rounds_closes_incomplete(client, seed_data):
     """
     Tiêu chí 5: Hết lượt hoặc hết hạn bổ sung INFO đóng CLOSED_INCOMPLETE; không tạo vòng lặp tiếp.

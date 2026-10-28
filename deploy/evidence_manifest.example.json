@@ -1,0 +1,10 @@
+{
+  "_comment": "Tệp mẫu manifest minh chứng kiểm thử pilot cho sinh viên sv003.",
+  "_instructions": "Sao chép tệp này thành 'deploy/.env.e2e_evidence.local.json' (tệp này được Git tự động bỏ qua). Điền đường dẫn tệp minh chứng thực tế được người phụ trách xác nhận cho sv003 và giữ human_verified = true.",
+  "student_code": "sv003",
+  "human_verified": true,
+  "files": {
+    "7b": "C:/path/to/minh_chung_hoat_dong_tinh_nguyen.png",
+    "8a": "C:/path/to/minh_chung_hien_mau_nhan_dao.pdf"
+  }
+}

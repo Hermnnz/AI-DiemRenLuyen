@@ -29,7 +29,7 @@ from api.app.services.template_service import ensure_templates_seeded
 
 
 def run_seed():
-    demo_password = os.getenv("DEMO_PASSWORD", "Demo@123456")
+    demo_password = os.getenv("DEMO_PASSWORD", "Demo123456")
     password_hash = hash_password(demo_password)
 
     fixtures_path = os.path.abspath(

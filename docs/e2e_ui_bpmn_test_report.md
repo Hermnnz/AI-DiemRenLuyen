@@ -1,11 +1,11 @@
-# BÁO CÁO KIỂM THỬ HỆ THỐNG ĐIỂM RÈN LUYỆN QUA GIAO DIỆN (E2E & BPMN AUDIT) — LƯỢT CHẠY 06 (TỰ ĐỘNG XUẤT TỪ RESULTS.JSON)
+# BÁO CÁO KIỂM THỬ HỆ THỐNG ĐIỂM RÈN LUYỆN QUA GIAO DIỆN (E2E & BPMN AUDIT) — LƯỢT CHẠY 07 (TỰ ĐỘNG XUẤT TỪ RESULTS.JSON)
 
-**Thời gian thực hiện:** 27/10/2026 23:43:06  
+**Thời gian thực hiện:** 28/10/2026 00:14:47  
 **Vai trò kiểm thử:** Senior QA Automation Engineer  
 **Tệp quy trình đối chiếu:** `Nhom8_TOBE_NangCao_BPMN20_v6.bpmn`  
 **Kịch bản kiểm thử tự động:** `web/e2e/run_e2e_bpmn.py`  
-**Tệp kết quả máy đọc (Machine-readable):** `output/e2e_ui_bpmn/run_06/results.json`  
-**Thư mục lưu trữ bằng chứng kiểm thử:** `output/e2e_ui_bpmn/run_06/`  
+**Tệp kết quả máy đọc (Machine-readable):** `output/e2e_ui_bpmn/run_07/results.json`  
+**Thư mục lưu trữ bằng chứng kiểm thử:** `output/e2e_ui_bpmn/run_07/`  
 
 ---
 
@@ -39,21 +39,26 @@ Kiểm thử được tiến hành độc lập và xác minh chéo trên cả h
    - `admin001` (Quản trị hệ thống)
    *(Mật khẩu được nạp an toàn từ biến môi trường và tệp bí mật cục bộ `deploy/.env.pilot_accounts.local`, tuyệt đối không in ra báo cáo, console hay git).*
 
+4. **Cấu hình Minh chứng Pilot (`HP-01`):**
+   - Tệp mẫu cấu hình không chứa dữ liệu cá nhân: `deploy/evidence_manifest.example.json`.
+   - Tệp cục bộ thực thi: `deploy/.env.e2e_evidence.local.json` (được `.gitignore` bảo vệ, không đưa lên Git).
+   - Khi chưa cung cấp tệp này với minh chứng thật được duyệt, `HP-01` ghi nhận `BLOCKED` đúng nguyên tắc bảo toàn dữ liệu.
+
 ---
 
 ## 2. Bảng đối chiếu quy trình BPMN (Traceability Matrix - Main Suite)
 
 | Test ID | BPMN Task / Gateway | Vai trò | Thao tác UI thực tế | Trạng thái hồ sơ mong đợi | Kết quả | Bằng chứng |
 |:---|:---|:---|:---|:---|:---|:---|
-| **ENV-01** | `System_Audit` | ALL | Kiểm tra phiên bản & số tiêu chí trên Vercel vs Local | Tồn tại môi trường chứa cả 22 tiêu chí và Dashboard BCS động | **PASS** | `output/e2e_ui_bpmn/run_06/ENV-01_env_verified.png` |
-| **SMK-01** | `ST_Login` | ALL | Đăng nhập qua UI 4 vai trò & kiểm tra Route Guard | Đăng nhập thành công đúng vai trò, route trái quyền bị chặn 403, Admin hiển thị dữ liệu thật (0 skeleton) | **PASS** | `output/e2e_ui_bpmn/run_06/SMK-01_login_rbac.png` |
-| **EX-01** | `SC_CheckCompleteness` | STUDENT | Không chọn điểm, bấm Nộp hồ sơ | UI chặn gửi, hiển thị thông báo lỗi, hồ sơ giữ DRAFT | **PASS** | `output/e2e_ui_bpmn/run_06/EX-01_validation.png` |
-| **EX-04** | `SC_CheckCompleteness` | STUDENT | Nhập điểm tự chấm 99 (vượt quá trần 10.00) | UI lập tức báo lỗi đỏ, chặn điểm vượt trần | **PASS** | `output/e2e_ui_bpmn/run_06/EX-04_max_score_error.png` |
-| **EX-05-A** | `SC_CheckEvidenceRules` | STUDENT | Tải tệp .txt vào mục minh chứng | Client validation từ chối, hiển thị thông báo định dạng | **PASS** | `output/e2e_ui_bpmn/run_06/EX-05-A_invalid_file_type.png` |
-| **EX-05-B** | `SC_CheckEvidenceRules` | STUDENT | Tải tệp 11MB (>10MB) vào mục minh chứng | Client validation từ chối, hiển thị giới hạn 10MB | **PASS** | `output/e2e_ui_bpmn/run_06/EX-05-B_file_too_large.png` |
-| **EX-10** | `SC_ReviewDraft` | BCS | Network Interception: Overview 200 (đầy đủ schema), Priority Case 500 | Dashboard không trắng, hiển thị cảnh báo lỗi một phần + CTA hàng chờ, không có NaN | **PASS** | `output/e2e_ui_bpmn/run_06/EX-10_partial_error_state.png` |
-| **UX-01** | `UX_Audit` | ALL | Kiểm toán 4 màn hình mobile (390×844) với phép đo bounding_box thật | scrollWidth <= 390px trên mọi màn hình, tap targets >= 44px, không tràn ngang | **PASS** | `output/e2e_ui_bpmn/run_06/UX-01_mobile_responsive.png` |
-| **HP-01** | `ST_Self & ST_Submit` | STUDENT | Thực thi Happy Path tại bước HP-01 | Hoàn tất nghiệp vụ bước | **BLOCKED** | `output/e2e_ui_bpmn/run_06/HP-01_blocked.png` |
+| **ENV-01** | `System_Audit` | ALL | Kiểm tra phiên bản & số tiêu chí trên Vercel vs Local | Tồn tại môi trường chứa cả 22 tiêu chí và Dashboard BCS động | **PASS** | `output/e2e_ui_bpmn/run_07/ENV-01_env_verified.png` |
+| **SMK-01** | `ST_Login` | ALL | Đăng nhập qua UI 4 vai trò & kiểm tra Route Guard | Đăng nhập thành công đúng vai trò, route trái quyền bị chặn 403, Admin hiển thị dữ liệu thật (0 skeleton) | **PASS** | `output/e2e_ui_bpmn/run_07/SMK-01_login_rbac.png` |
+| **EX-01** | `SC_CheckCompleteness` | STUDENT | Không chọn điểm, bấm Nộp hồ sơ | UI chặn gửi, hiển thị thông báo lỗi, hồ sơ giữ DRAFT | **PASS** | `output/e2e_ui_bpmn/run_07/EX-01_validation.png` |
+| **EX-04** | `SC_CheckCompleteness` | STUDENT | Nhập điểm tự chấm 99 (vượt quá trần 10.00) | UI lập tức báo lỗi đỏ, chặn điểm vượt trần | **PASS** | `output/e2e_ui_bpmn/run_07/EX-04_max_score_error.png` |
+| **EX-05-A** | `SC_CheckEvidenceRules` | STUDENT | Tải tệp .txt vào mục minh chứng | Client validation từ chối, hiển thị thông báo định dạng | **PASS** | `output/e2e_ui_bpmn/run_07/EX-05-A_invalid_file_type.png` |
+| **EX-05-B** | `SC_CheckEvidenceRules` | STUDENT | Tải tệp 11MB (>10MB) vào mục minh chứng | Client validation từ chối, hiển thị giới hạn 10MB | **PASS** | `output/e2e_ui_bpmn/run_07/EX-05-B_file_too_large.png` |
+| **EX-10** | `SC_ReviewDraft` | BCS | Network Interception: Overview 200 (đầy đủ schema), Priority Case 500 | Dashboard không trắng, hiển thị cảnh báo lỗi một phần + CTA hàng chờ, không có NaN | **PASS** | `output/e2e_ui_bpmn/run_07/EX-10_partial_error_state.png` |
+| **UX-01** | `UX_Audit` | ALL | Kiểm toán 4 màn hình mobile (390×844) với phép đo bounding_box thật | scrollWidth <= 390px trên mọi màn hình, tap targets >= 44px, không tràn ngang | **PASS** | `output/e2e_ui_bpmn/run_07/UX-01_mobile_responsive.png` |
+| **HP-01** | `ST_Self & ST_Submit` | STUDENT | Thực thi Happy Path tại bước HP-01 | Hoàn tất nghiệp vụ bước | **BLOCKED** | `output/e2e_ui_bpmn/run_07/HP-01_blocked.png` |
 | **HP-02** | `SC_ReviewDraft` | BCS | Thực thi Happy Path tại bước HP-02 | Hoàn tất nghiệp vụ bước | **BLOCKED** | Dừng do lỗi phát sinh tại bước phía trước (HP-01) |
 | **HP-03** | `SC_BCSFlags` | BCS | Thực thi Happy Path tại bước HP-03 | Hoàn tất nghiệp vụ bước | **BLOCKED** | Dừng do lỗi phát sinh tại bước phía trước (HP-01) |
 | **HP-04** | `SC_MergeReview` | BCS | Thực thi Happy Path tại bước HP-04 | Hoàn tất nghiệp vụ bước | **BLOCKED** | Dừng do lỗi phát sinh tại bước phía trước (HP-01) |
@@ -104,7 +109,7 @@ Phép đo định lượng được thực thi tự động qua Playwright Scrip
 ### B. Kiểm soát trạng thái lỗi một phần Dashboard BCS (`EX-10`):
 - **Phòng chống lỗi NaN:** Mock overview cung cấp đủ các bộ đếm; Playwright kiểm tra giao diện không hiển thị `NaN` hoặc `undefined`.
 - **Xác minh qua Script:** Playwright thực hiện kiểm tra `assert not re.search(r'\bNaN\b', body_text)` và xác nhận **100% không có chữ NaN hoặc undefined** trên giao diện.
-- **Bằng chứng:** `output/e2e_ui_bpmn/run_06/EX-10_partial_error_state.png` hiển thị rõ hộp cảnh báo hổ phách và nút CTA "Mở hàng chờ →".
+- **Bằng chứng:** `output/e2e_ui_bpmn/run_07/EX-10_partial_error_state.png` hiển thị rõ hộp cảnh báo hổ phách và nút CTA "Mở hàng chờ →".
 
 ### C. Đăng nhập và Phân quyền RBAC (`SMK-01`):
 Đã chụp riêng biệt từng vai trò sau khi trang nạp dữ liệu xong (đảm bảo skeleton loader biến mất 100% trước khi chụp):
@@ -122,47 +127,55 @@ Bộ Mock/Fixture kiểm tra phản ứng UI với dữ liệu giả lập. PASS
 
 | Mã nhánh | Nhánh nghiệp vụ kiểm chứng | Kết quả | Trạng thái ghi nhận | Bằng chứng hình ảnh |
 |:---|:---|:---|:---|:---|
-| **BRANCH-MISSING-PROOF** | Thiếu minh chứng bắt buộc khi tự chấm | **PASS** | UI phát hiện thiếu minh chứng tiêu chí 7b, cảnh báo rõ ràng trước khi nộp | `output/e2e_ui_bpmn/run_06/BRANCH_01_missing_evidence.png` |
-| **BRANCH-LOCAL-WRONG-LINK** | Đối chiếu case ID trên Dashboard với API | **PASS** | Link UI khớp case API 11111111-1111-4111-8111-111111111111; phép kiểm ENV-01 từ chối một link khác | `output/e2e_ui_bpmn/run_06/BRANCH_02_local_wrong_link.png` |
-| **BRANCH-HP04-ERROR** | UI chặn BCS hoàn tất khi thiếu lý do điều chỉnh | **PASS** | UI chặn hoàn tất kiểm tra khi điều chỉnh điểm thiếu lý do | `output/e2e_ui_bpmn/run_06/BRANCH_03_hp04_error.png` |
-| **BRANCH-GATE-CLOSED** | Gate đóng chặn công bố bảng điểm | **PASS** | Banner hổ phách liệt kê rõ các điều kiện chưa đạt, nút công bố bị khóa cứng | `output/e2e_ui_bpmn/run_06/BRANCH_04_gate_closed.png` |
-| **BRANCH-HP06-NO-FINALIZED** | HP-06 từ chối PASS khi đợt chưa chốt sổ FINALIZED | **PASS** | GVCN chỉ thấy màn hình giải thích chờ chốt điểm, bảng điểm rỗng, nút xuất CSV bị khóa | `output/e2e_ui_bpmn/run_06/BRANCH_05_hp06_no_finalized.png` |
-| **BRANCH-MOCK-UI-FLOW** | Luồng UI mô phỏng từ nộp hồ sơ đến GVCN nhận bàn giao | **PASS** | Dữ liệu tự chấm đã có sẵn; UI nộp -> BCS duyệt -> công bố -> sinh viên đồng ý -> BCS chốt và gửi -> GVCN nhận | `output/e2e_ui_bpmn/run_06/BRANCH_06_mock_ui_flow.png` |
+| **BRANCH-MISSING-PROOF** | Thiếu minh chứng bắt buộc khi tự chấm | **PASS** | UI phát hiện thiếu minh chứng tiêu chí 7b, cảnh báo rõ ràng trước khi nộp | `output/e2e_ui_bpmn/run_07/BRANCH_01_missing_evidence.png` |
+| **BRANCH-LOCAL-WRONG-LINK** | Đối chiếu case ID trên Dashboard với API | **PASS** | Link UI khớp case API 11111111-1111-4111-8111-111111111111; phép kiểm ENV-01 từ chối một link khác | `output/e2e_ui_bpmn/run_07/BRANCH_02_local_wrong_link.png` |
+| **BRANCH-HP04-ERROR** | UI chặn BCS hoàn tất khi thiếu lý do điều chỉnh | **PASS** | UI chặn hoàn tất kiểm tra khi điều chỉnh điểm thiếu lý do | `output/e2e_ui_bpmn/run_07/BRANCH_03_hp04_error.png` |
+| **BRANCH-GATE-CLOSED** | Gate đóng chặn công bố bảng điểm | **PASS** | Banner hổ phách liệt kê rõ các điều kiện chưa đạt, nút công bố bị khóa cứng | `output/e2e_ui_bpmn/run_07/BRANCH_04_gate_closed.png` |
+| **BRANCH-HP06-NO-FINALIZED** | HP-06 từ chối PASS khi đợt chưa chốt sổ FINALIZED | **PASS** | GVCN chỉ thấy màn hình giải thích chờ chốt điểm, bảng điểm rỗng, nút xuất CSV bị khóa | `output/e2e_ui_bpmn/run_07/BRANCH_05_hp06_no_finalized.png` |
+| **BRANCH-MOCK-UI-FLOW** | Luồng UI mô phỏng từ nộp hồ sơ đến GVCN nhận bàn giao | **PASS** | Dữ liệu tự chấm đã có sẵn; UI nộp -> BCS duyệt -> công bố -> sinh viên đồng ý -> BCS chốt và gửi -> GVCN nhận | `output/e2e_ui_bpmn/run_07/BRANCH_06_mock_ui_flow.png` |
+| **BRANCH-QUEUE-MULTI-STUDENT** | Hàng chờ nhiều SV: Thẻ ưu tiên là sv001, mở đúng sv003 qua UI hàng chờ | **PASS** | Dashboard hiển thị ưu tiên sv001; script vào hàng chờ /bcs/cases, tìm sv003 và click mở đúng /bcs/cases/33333333-3333-4333-8333-333333333333 | `output/e2e_ui_bpmn/run_07/BRANCH_07_queue_multi_student.png` |
 
 ### Chi tiết các nhánh kiểm chứng:
 1. **BRANCH-MISSING-PROOF — Thiếu minh chứng bắt buộc khi tự chấm:**
    - **Hành vi quan sát:** UI phát hiện thiếu minh chứng tiêu chí 7b, cảnh báo rõ ràng trước khi nộp
    - **Kết luận QA:** Xác minh thành công: Client ngăn ngừa hoặc cảnh báo khi sinh viên chấm điểm nhưng thiếu minh chứng.
-   - **Ảnh minh chứng:** `output/e2e_ui_bpmn/run_06/BRANCH_01_missing_evidence.png`
+   - **Ảnh minh chứng:** `output/e2e_ui_bpmn/run_07/BRANCH_01_missing_evidence.png`
 
 2. **BRANCH-LOCAL-WRONG-LINK — Đối chiếu case ID trên Dashboard với API:**
    - **Hành vi quan sát:** Link UI khớp case API 11111111-1111-4111-8111-111111111111; phép kiểm ENV-01 từ chối một link khác
    - **Kết luận QA:** Xác minh thành công: Script đối chiếu href (/bcs/cases/11111111-1111-4111-8111-111111111111) với case ID thật của API.
-   - **Ảnh minh chứng:** `output/e2e_ui_bpmn/run_06/BRANCH_02_local_wrong_link.png`
+   - **Ảnh minh chứng:** `output/e2e_ui_bpmn/run_07/BRANCH_02_local_wrong_link.png`
 
 3. **BRANCH-HP04-ERROR — UI chặn BCS hoàn tất khi thiếu lý do điều chỉnh:**
    - **Hành vi quan sát:** UI chặn hoàn tất kiểm tra khi điều chỉnh điểm thiếu lý do
    - **Kết luận QA:** Fixture kiểm tra validation UI; phân loại FAIL/BLOCKED của bộ điều phối chỉ được xác minh khi chạy luồng E2E thực.
-   - **Ảnh minh chứng:** `output/e2e_ui_bpmn/run_06/BRANCH_03_hp04_error.png`
+   - **Ảnh minh chứng:** `output/e2e_ui_bpmn/run_07/BRANCH_03_hp04_error.png`
 
 4. **BRANCH-GATE-CLOSED — Gate đóng chặn công bố bảng điểm:**
    - **Hành vi quan sát:** Banner hổ phách liệt kê rõ các điều kiện chưa đạt, nút công bố bị khóa cứng
    - **Kết luận QA:** Fixture kiểm tra Gate UI; main suite ghi HP-05 BLOCKED khi gặp Gate đóng.
-   - **Ảnh minh chứng:** `output/e2e_ui_bpmn/run_06/BRANCH_04_gate_closed.png`
+   - **Ảnh minh chứng:** `output/e2e_ui_bpmn/run_07/BRANCH_04_gate_closed.png`
 
 5. **BRANCH-HP06-NO-FINALIZED — HP-06 từ chối PASS khi đợt chưa chốt sổ FINALIZED:**
    - **Hành vi quan sát:** GVCN chỉ thấy màn hình giải thích chờ chốt điểm, bảng điểm rỗng, nút xuất CSV bị khóa
    - **Kết luận QA:** Fixture kiểm tra GVCN bị chặn trước FINALIZED; main suite còn phải thực hiện chốt và bàn giao.
-   - **Ảnh minh chứng:** `output/e2e_ui_bpmn/run_06/BRANCH_05_hp06_no_finalized.png`
+   - **Ảnh minh chứng:** `output/e2e_ui_bpmn/run_07/BRANCH_05_hp06_no_finalized.png`
 
 6. **BRANCH-MOCK-UI-FLOW — Luồng UI mô phỏng từ nộp hồ sơ đến GVCN nhận bàn giao:**
    - **Hành vi quan sát:** Dữ liệu tự chấm đã có sẵn; UI nộp -> BCS duyệt -> công bố -> sinh viên đồng ý -> BCS chốt và gửi -> GVCN nhận
    - **Kết luận QA:** Fixture mô phỏng nghiệp vụ qua UI; không thay thế kết quả Happy Path trên backend thật.
-   - **Ảnh minh chứng:** `output/e2e_ui_bpmn/run_06/BRANCH_06_mock_ui_flow.png`
+   - **Ảnh minh chứng:** `output/e2e_ui_bpmn/run_07/BRANCH_06_mock_ui_flow.png`
+
+7. **BRANCH-QUEUE-MULTI-STUDENT — Hàng chờ nhiều SV: Thẻ ưu tiên là sv001, mở đúng sv003 qua UI hàng chờ:**
+   - **Hành vi quan sát:** Dashboard hiển thị ưu tiên sv001; script vào hàng chờ /bcs/cases, tìm sv003 và click mở đúng /bcs/cases/33333333-3333-4333-8333-333333333333
+   - **Kết luận QA:** Xác minh thành công: Script không điều hướng thẳng URL mà tìm và click qua UI hàng chờ.
+   - **Ảnh minh chứng:** `output/e2e_ui_bpmn/run_07/BRANCH_07_queue_multi_student.png`
 
 ---
 
 ## 6. Giới hạn của lần kiểm thử & Khuyến nghị Pilot
 
-1. Chỉ chạy Happy Path live bằng tài khoản pilot và dữ liệu kiểm thử được phép sử dụng; các thao tác nộp, công bố và chốt điểm sẽ thay đổi dữ liệu của đợt.
-2. Khi ENV-01 xác minh được một môi trường, đọc kết quả từng bước trong Main Suite. Gate, hồ sơ khác chưa phản hồi hoặc thiếu minh chứng sẽ chặn luồng và cần được xử lý theo quy trình.
+1. **Minh chứng pilot (`HP-01`):** Nếu chưa có manifest minh chứng thật tại `deploy/.env.e2e_evidence.local.json`, `HP-01` và các bước kế tiếp ghi nhận `BLOCKED` đúng nguyên tắc bảo toàn dữ liệu. Người phụ trách cần sao chép từ `deploy/evidence_manifest.example.json` và bổ sung tệp minh chứng thực tế.
+2. **Điều kiện Gate công bố (`HP-05`):** Nếu lớp còn hồ sơ chưa ở trạng thái `PROPOSED` hoặc chưa đủ 2 cuộc họp và biên bản rà soát, Gate Check hiển thị cảnh báo và khóa nút công bố (`HP-05 = BLOCKED`). Không được tự ý duyệt thay hồ sơ của sinh viên khác để ép thông luồng.
+3. **Điều hướng hồ sơ (`HP-02` / `HP-03`):** Thẻ ưu tiên Dashboard hiển thị hồ sơ đầu tiên của hàng chờ API. Để xử lý sinh viên chỉ định (`sv003`), Ban cán sự truy cập qua giao diện hàng chờ `/bcs/cases` để tìm và mở hồ sơ tương ứng.
+4. **Nghiệm thu toàn bộ luồng:** Chỉ xác nhận quy trình PASS khi toàn bộ các bước được kiểm chứng thực tế trên cùng môi trường Production.

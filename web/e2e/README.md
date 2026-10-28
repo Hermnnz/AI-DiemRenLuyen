@@ -16,12 +16,12 @@ Thư mục này chứa bộ kịch bản kiểm thử giao diện người dùng
      - Tệp ảnh chụp màn hình chứng minh tồn tại với dung lượng > 0 và phản ánh đúng trạng thái hoàn tất (không chụp skeleton placeholder).
    - Tuyệt đối không dùng giá trị mặc định (fallback default) trong các phép đo định lượng (ví dụ: không gán chiều cao nút bấm bằng 44px nếu không tìm thấy phần tử).
    - Không tự suy diễn môi trường "đã sửa" nếu không có dữ liệu thực tế để đối chiếu (ví dụ: thẻ ưu tiên thiếu dữ liệu case để so khớp link).
-   - Happy Path live cần manifest minh chứng `deploy/.env.e2e_evidence.local.json` (đã được `.gitignore` loại trừ), đúng sinh viên pilot `sv003`, ví dụ `{"student_code":"sv003","human_verified":true,"files":{"7b":"D:/duong-dan/minh-chung-7b.png"}}`. Tệp phải do người phụ trách xác nhận phù hợp với tiêu chí. Thiếu manifest thì bước HP-01 ghi `BLOCKED`; không dùng ảnh tổng hợp của bộ đánh giá AI làm minh chứng thật.
+   - Happy Path live cần manifest minh chứng `deploy/.env.e2e_evidence.local.json` (được `.gitignore` bảo vệ). Tệp mẫu không chứa dữ liệu cá nhân được lưu tại `deploy/evidence_manifest.example.json`. Người phụ trách sao chép tệp mẫu thành `deploy/.env.e2e_evidence.local.json`, điền đường dẫn tệp minh chứng thực tế được duyệt cho `sv003` (định dạng PDF/JPG/PNG, <= 10MB) và đặt human_verified=true. Nếu thiếu manifest, bước HP-01 ghi `BLOCKED` kèm hướng dẫn chi tiết; tuyệt đối không dùng ảnh tổng hợp của bộ đánh giá AI hay tạo minh chứng giả.
 5. **Quản lý lỗi từng bước (Step Error Pinpointing):**
    - Theo dõi từng bước Happy Path đang chạy (`HP-01` -> `HP-06`).
    - Ngoại lệ hoặc lỗi assertion xảy ra ở bước nào thì ghi nhận `FAIL` chính xác cho bước đó (không luôn gán `HP-01`).
    - Các bước kế tiếp phía sau được ghi nhận trạng thái `BLOCKED` kèm lý do phụ thuộc bước lỗi.
-6. **Đồng bộ hóa báo cáo tự động:** Báo cáo Markdown `docs/e2e_ui_bpmn_test_report.md` được sinh từ `output/e2e_ui_bpmn/run_06/results.json`. Các ca mock được báo riêng, không cộng vào kết quả live.
+6. **Đồng bộ hóa báo cáo tự động:** Báo cáo Markdown `docs/e2e_ui_bpmn_test_report.md` được sinh từ `output/e2e_ui_bpmn/run_07/results.json`. Các ca mock được báo riêng, không cộng vào kết quả live.
 
 ---
 
@@ -33,7 +33,7 @@ web/e2e/
 └── run_e2e_bpmn.py         # Kịch bản kiểm thử E2E tự động chính
 
 output/e2e_ui_bpmn/
-└── run_06/                 # Thư mục lưu trữ kết quả và bằng chứng của lượt chạy 05
+└── run_07/                 # Thư mục lưu trữ kết quả và bằng chứng của lượt chạy 05
     ├── results.json        # Tệp kết quả máy đọc được (JSON có cấu trúc)
     ├── ENV-01_version_mismatch.png
     ├── SMK-01_student.png
@@ -105,6 +105,7 @@ Script kiểm tra chéo hai môi trường theo các điều kiện nghiêm ng�
 | **BRANCH-GATE-CLOSED** | Gate đóng chặn công bố | Scoreboard chưa đủ điều kiện hiển thị banner cảnh báo, khóa nút công bố, HP-05 = BLOCKED |
 | **BRANCH-HP06-NO-FINALIZED** | HP-06 thiếu FINALIZED | GVCN chỉ thấy màn hình giải thích chờ chốt điểm, khóa xuất CSV; HP-06 không thể PASS sớm |
 | **BRANCH-MOCK-UI-FLOW** | Mô phỏng luồng UI | Dữ liệu tự chấm đã nạp sẵn; kiểm tra các thao tác nộp, duyệt, công bố, đồng ý, chốt và bàn giao trên UI mock. Không thay thế E2E live. |
+| **BRANCH-QUEUE-MULTI-STUDENT** | Hàng chờ nhiều SV (sv001 ưu tiên, mở sv003) | Dashboard ưu tiên sv001 (hồ sơ đầu API hàng chờ); script vào /bcs/cases tìm và click mở đúng sv003 qua UI, không điều hướng thẳng URL. |
 
 ---
 
@@ -123,6 +124,6 @@ python web/e2e/run_e2e_bpmn.py
 ```
 
 ### Kết quả đầu ra:
-1. Thư mục `output/e2e_ui_bpmn/run_06/` chứa ảnh chụp màn hình của live suite và các nhánh mock.
-2. Tệp máy đọc `output/e2e_ui_bpmn/run_06/results.json`.
+1. Thư mục `output/e2e_ui_bpmn/run_07/` chứa ảnh chụp màn hình của live suite và các nhánh mock.
+2. Tệp máy đọc `output/e2e_ui_bpmn/run_07/results.json`.
 3. Tệp báo cáo Markdown `docs/e2e_ui_bpmn_test_report.md` được tự động cập nhật khớp từng số liệu.

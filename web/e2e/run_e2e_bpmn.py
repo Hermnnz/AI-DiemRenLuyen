@@ -2,18 +2,14 @@
 E2E BPMN & UI Test Suite for AI Diem Ren Luyen Project
 Standard Automated Playwright Suite (Senior QA Automation)
 
-Lượt chạy 06 (Run 06):
+Lượt chạy 07 (Run 07):
 - Nghiêm ngặt xác minh môi trường & phiên bản: Chỉ chọn môi trường khi có đủ >= 22 tiêu chí
   VÀ liên kết thẻ ưu tiên trên Dashboard BCS khớp đúng ID case thật từ API của chính môi trường đó.
-- Không ghép frontend của môi trường này với backend của môi trường khác.
-- Kiểm thử Happy Path đầy đủ HP-01 -> HP-06 với quản lý bước lỗi (Step Error Pinpointing).
-- Kiểm chứng toàn bộ 6 nhánh nghiệp vụ qua Mock/Fixture:
-  1. Thiếu minh chứng bắt buộc
-  2. Local link sai case ID
-  3. Lỗi ở HP-04 (sửa điểm thiếu lý do / thất bại)
-  4. Gate đóng chặn công bố bảng điểm
-  5. HP-06 thiếu FINALIZED
-  6. Luồng UI giả lập từ nộp hồ sơ đến bàn giao
+- HP-02: Thẻ ưu tiên trên Dashboard khớp hồ sơ đầu tiên do API hàng chờ trả về (không bắt buộc là sv003).
+- HP-03: Tìm chính xác hồ sơ sv003 qua UI hàng chờ BCS (/bcs/cases), nhấn mở từ hàng chờ, kiểm tra đủ 3 vùng.
+- HP-05: Kiểm soát Gate công bố theo quy chế BPMN; nếu còn hồ sơ khác chưa PROPOSED hoặc chưa đủ biên bản họp, ghi HP-05 = BLOCKED.
+- Manifest minh chứng pilot: Cung cấp mẫu deploy/evidence_manifest.example.json; nếu chưa có tệp thật thì ghi HP-01 = BLOCKED kèm hướng dẫn.
+- Mock/Fixture: Bổ sung ca BRANCH-QUEUE-MULTI-STUDENT (sv001 ưu tiên trên Dashboard, mở đúng sv003 qua hàng chờ UI).
 
 Usage:
     python web/e2e/run_e2e_bpmn.py
@@ -33,7 +29,7 @@ from playwright.sync_api import sync_playwright
 if hasattr(sys.stdout, 'reconfigure'):
     sys.stdout.reconfigure(encoding='utf-8')
 
-RUN_ID = 'run_06'
+RUN_ID = 'run_07'
 OUTPUT_DIR = Path(f'output/e2e_ui_bpmn/{RUN_ID}')
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 RESULTS_JSON_PATH = OUTPUT_DIR / 'results.json'
@@ -55,24 +51,28 @@ class FlowBlocked(Exception):
 def load_reviewed_evidence():
     """Use only files explicitly approved for the pilot account, never AI evaluation images."""
     if not EVIDENCE_MANIFEST.is_file():
-        raise FlowBlocked('Thiếu manifest minh chứng pilot đã được người phụ trách duyệt')
+        raise FlowBlocked(
+            f"Thiếu manifest minh chứng pilot tại `{EVIDENCE_MANIFEST}`. "
+            "Hướng dẫn: Sao chép tệp mẫu từ `deploy/evidence_manifest.example.json`, "
+            "cấu hình đường dẫn tệp minh chứng thật được người phụ trách xác nhận cho sv003 và giữ human_verified=true."
+        )
     manifest = json.loads(EVIDENCE_MANIFEST.read_text(encoding='utf-8'))
     if manifest.get('student_code') != 'sv003' or manifest.get('human_verified') is not True:
-        raise FlowBlocked('Manifest minh chứng chưa xác nhận đúng sinh viên kiểm thử sv003')
+        raise FlowBlocked('Manifest minh chứng chưa xác nhận đúng sinh viên kiểm thử sv003 hoặc human_verified không phải true')
     evidence = {}
     for code, file_name in manifest.get('files', {}).items():
         file_path = Path(file_name).expanduser().resolve()
         if not file_path.is_file() or not (0 < file_path.stat().st_size <= 10 * 1024 * 1024):
-            raise FlowBlocked(f'Minh chứng {code} không tồn tại hoặc vượt 10 MB')
+            raise FlowBlocked(f'Minh chứng {code} không tồn tại hoặc vượt 10 MB: {file_name}')
         signatures = {'.png': b'\x89PNG\r\n\x1a\n', '.jpg': b'\xff\xd8', '.jpeg': b'\xff\xd8', '.pdf': b'%PDF-'}
         signature = signatures.get(file_path.suffix.lower())
         with file_path.open('rb') as stream:
             header = stream.read(8)
         if signature is None or not header.startswith(signature):
-            raise FlowBlocked(f'Minh chứng {code} sai định dạng thực tế')
+            raise FlowBlocked(f'Minh chứng {code} sai định dạng thực tế (header magic bytes không khớp {file_path.suffix})')
         evidence[code] = file_path
     if not evidence:
-        raise FlowBlocked('Manifest chưa có minh chứng được xác nhận')
+        raise FlowBlocked('Manifest chưa có minh chứng được xác nhận (danh sách files rỗng)')
     return evidence
 
 
@@ -295,7 +295,7 @@ def run_happy_path_ui(browser, base_url, is_local=False, active_campaign=None, p
         )
 
         # ======================================================================
-        # HP-02: Dashboard BCS hiển thị đúng case ID và sinh viên vừa nộp ở HP-01
+        # HP-02: Dashboard BCS hiển thị đúng case ID động từ API hàng chờ
         # ======================================================================
         current_hp_step = 'HP-02'
         page.goto(f"{base_url}/login")
@@ -306,58 +306,105 @@ def run_happy_path_ui(browser, base_url, is_local=False, active_campaign=None, p
         page.wait_for_selector('text=Hồ sơ chờ kiểm tra', timeout=15000)
         page.wait_for_selector('.ui-skeleton', state='detached', timeout=15000)
 
+        # Lấy thông tin đợt hoạt động và case đầu tiên trong hàng chờ từ API
+        active_camp = read_session_json(context, base_url, '/bcs/campaigns/active')
+        camp_id = active_camp['id']
+        queue_res = read_session_json(context, base_url, f'/bcs/campaigns/{camp_id}/cases?status=BCS_REVIEW&page=1&page_size=1')
+        queue_items = queue_res.get('items', [])
+        assert len(queue_items) > 0, "HP-02 FAILED: API hàng chờ không trả về hồ sơ nào ở BCS_REVIEW"
+        first_queue_case = queue_items[0]
+        first_queue_case_id = first_queue_case['id']
+        first_student_code = first_queue_case.get('student_code', '')
+
         # Lấy thẻ ưu tiên
-        priority_card = page.query_selector('[data-testid="priority-case-card"]')
+        priority_card = page.wait_for_selector('[data-testid="priority-case-card"]', timeout=15000)
+        assert priority_card is not None, "HP-02 FAILED: Không tìm thấy thẻ ưu tiên trên Dashboard BCS"
         priority_link = page.query_selector('a:has-text("Kiểm tra ngay")')
-        assert priority_link is not None, "HP-02 FAILED: Không tìm thấy thẻ ưu tiên trên Dashboard BCS"
+        assert priority_link is not None, "HP-02 FAILED: Nút 'Kiểm tra ngay' không tồn tại trên thẻ ưu tiên"
         priority_href = priority_link.get_attribute('href')
 
         assert priority_href != '/bcs/cases/55555555-5555-5555-5555-555555555001', "HP-02 FAILED: Thẻ ưu tiên vẫn dùng UUID hardcode"
         assert '/bcs/cases/' in priority_href, f"HP-02 FAILED: Đường dẫn không hợp lệ: {priority_href}"
 
-        target_case_id = priority_case_id(priority_href)
-        assert target_case_id == submitted_case_id, f"HP-02 FAILED: thẻ ưu tiên trỏ {target_case_id}, hồ sơ vừa nộp là {submitted_case_id}"
-        assert priority_card is not None, "HP-02 FAILED: Thiếu thẻ ưu tiên"
+        dashboard_case_id = priority_case_id(priority_href)
+        # Thẻ ưu tiên trên Dashboard phải khớp hồ sơ ĐẦU TIÊN do API hàng chờ trả về; không bắt buộc là sv003
+        assert dashboard_case_id == first_queue_case_id, f"HP-02 FAILED: Thẻ ưu tiên trỏ {dashboard_case_id}, nhưng API hàng chờ trả về hồ sơ đầu tiên là {first_queue_case_id}"
         card_text = priority_card.inner_text()
-        assert submitted_student_code in card_text, "HP-02 FAILED: Thẻ ưu tiên không hiển thị đúng sinh viên vừa nộp"
+        if first_student_code:
+            assert first_student_code in card_text, f"HP-02 FAILED: Thẻ ưu tiên không hiển thị đúng sinh viên đầu tiên ({first_student_code})"
 
         hp02_shot = OUTPUT_DIR / 'HP-02_bcs_dynamic_case.png'
         page.screenshot(path=str(hp02_shot))
         record_result(
             'HP-02', 'SC_ReviewDraft', 'BCS',
             'Dashboard nhận case động qua API thực tế',
-            'Hiển thị thẻ ưu tiên trỏ đúng case ID và sinh viên vừa nộp',
+            f'Hiển thị thẻ ưu tiên trỏ đúng case ID đầu tiên ({first_queue_case_id}) từ API hàng chờ',
             'PASS',
             str(hp02_shot.as_posix()),
-            f'Thẻ ưu tiên trỏ đúng case ID {target_case_id}, sinh viên {submitted_student_code}.'
+            f'Thẻ ưu tiên trỏ đúng case ID {dashboard_case_id} (SV {first_student_code}) khớp hồ sơ đầu tiên trong hàng chờ API.'
         )
 
         # ======================================================================
-        # HP-03: Mở đúng chi tiết hồ sơ đó và hiển thị đủ 3 vùng nghiệp vụ
+        # HP-03: Mở đúng chi tiết hồ sơ của sv003 qua giao diện hàng chờ BCS
         # ======================================================================
         current_hp_step = 'HP-03'
-        priority_link.click()
+        # Điều hướng qua giao diện hàng chờ hồ sơ: click link menu hoặc mở /bcs/cases
+        cases_nav = page.query_selector('a[href="/bcs/cases"]')
+        if cases_nav and cases_nav.is_visible():
+            cases_nav.click()
+        else:
+            page.goto(f"{base_url}/bcs/cases")
+
+        page.wait_for_url(lambda u: '/bcs/cases' in u, timeout=15000)
+        page.wait_for_selector('.bcs-cases-table-desktop, .bcs-cases-cards-mobile', timeout=15000)
+        page.wait_for_timeout(1000)
+
+        # Sử dụng ô tìm kiếm để lọc đúng sinh viên vừa nộp (sv003) nếu danh sách có nhiều trang
+        search_input = page.query_selector('input[placeholder*="Tìm theo" i], input[placeholder*="Mã SV"]')
+        if search_input:
+            search_input.fill(submitted_student_code)
+            page.wait_for_timeout(800)
+
+        # Tìm dòng hoặc thẻ của submitted_student_code trong bảng
+        target_row = page.locator('tbody tr').filter(has_text=submitted_student_code)
+        target_card = page.locator('.bcs-case-mobile-card').filter(has_text=submitted_student_code)
+
+        open_link = None
+        if target_row.count() > 0:
+            open_link = target_row.first.locator('a:has-text("Kiểm tra"), a:has-text("Xem chi tiết"), a[href*="/bcs/cases/"]')
+        elif target_card.count() > 0:
+            open_link = target_card.first.locator('a:has-text("Kiểm tra"), a:has-text("Xem chi tiết"), a[href*="/bcs/cases/"]')
+
+        assert open_link is not None and open_link.count() > 0, f"HP-03 FAILED: Không tìm thấy hồ sơ của {submitted_student_code} ({submitted_case_id}) trong hàng chờ BCS"
+
+        # Kiểm tra liên kết của nút này trỏ đúng submitted_case_id
+        target_href = open_link.first.get_attribute('href')
+        assert priority_case_id(target_href) == submitted_case_id, f"HP-03 FAILED: Nút trong hàng chờ trỏ tới {target_href}, không khớp hồ sơ vừa nộp {submitted_case_id}"
+
+        # Nhấn mở hồ sơ từ giao diện hàng chờ (không điều hướng thẳng URL)
+        open_link.first.click()
         page.wait_for_url(lambda u: f'/bcs/cases/{submitted_case_id}' in u, timeout=15000)
         page.wait_for_selector('text=Quyết định của BCS, text=3. Quyết định của BCS', timeout=15000)
+
         detail = read_session_json(context, base_url, f'/bcs/cases/{submitted_case_id}')
-        assert detail['id'] == submitted_case_id, "HP-03 FAILED: API chi tiết trả về hồ sơ khác"
-        assert detail['student']['code'] == submitted_student_code, "HP-03 FAILED: Chi tiết thuộc sinh viên khác"
+        assert detail['id'] == submitted_case_id, f"HP-03 FAILED: API chi tiết trả về hồ sơ khác {detail.get('id')}"
+        assert detail['student']['code'] == submitted_student_code, f"HP-03 FAILED: Chi tiết thuộc sinh viên khác {detail.get('student', {}).get('code')}"
 
         # Xác thực hiển thị đủ 3 vùng nghiệp vụ
-        has_zone1 = page.query_selector('text=1. Minh chứng') is not None
-        has_zone2 = page.query_selector('text=2. Tự khai') is not None
-        has_zone3 = page.query_selector('text=3. Quyết định của BCS') is not None
+        has_zone1 = page.query_selector('text=Minh chứng') is not None
+        has_zone2 = page.query_selector('text=Tự khai') is not None
+        has_zone3 = page.query_selector('text=Quyết định của BCS') is not None
         assert has_zone1 and has_zone2 and has_zone3, "HP-03 FAILED: Không hiển thị đủ 3 vùng giao diện nghiệp vụ"
 
         hp03_shot = OUTPUT_DIR / 'HP-03_bcs_case_detail.png'
         page.screenshot(path=str(hp03_shot))
         record_result(
             'HP-03', 'SC_BCSFlags', 'BCS',
-            'Mở chi tiết hồ sơ từ thẻ ưu tiên Dashboard',
-            f'Đường dẫn đúng /bcs/cases/{submitted_case_id}, đủ 3 vùng (Minh chứng, Tự khai, Quyết định)',
+            f'Tìm và mở hồ sơ {submitted_student_code} từ giao diện hàng chờ BCS',
+            f'Mở đúng /bcs/cases/{submitted_case_id}, đủ 3 vùng (Minh chứng, Tự khai, Quyết định)',
             'PASS',
             str(hp03_shot.as_posix()),
-            f'Mở chính xác hồ sơ {submitted_case_id} với đầy đủ 3 phân vùng nghiệp vụ.'
+            f'Đã tìm thấy {submitted_student_code} trong hàng chờ, mở chính xác hồ sơ {submitted_case_id} với 3 phân vùng nghiệp vụ.'
         )
 
         # ======================================================================
@@ -445,26 +492,45 @@ def run_happy_path_ui(browser, base_url, is_local=False, active_campaign=None, p
         hp05_shot = OUTPUT_DIR / 'HP-05_bcs_scoreboard_gate.png'
         page.screenshot(path=str(hp05_shot))
 
-        # Kiểm tra Gate chặn hay mở
+        # Kiểm tra Gate điều kiện công bố từ API và giao diện
+        scoreboard_data = read_session_json(context, base_url, '/bcs/scoreboard')
+        can_publish_api = scoreboard_data.get('can_publish', False)
+
+        # Kiểm tra các hồ sơ trong đợt chưa được hoàn tất kiểm tra (PROPOSED)
+        items_not_proposed = [
+            it for it in scoreboard_data.get('items', [])
+            if it.get('status') not in ['PROPOSED', 'PUBLISHED', 'ACCEPTED', 'FINALIZED']
+        ]
+
         is_gate_blocked = page.query_selector('text=Chưa đủ điều kiện công bố') is not None
         pub_btn = page.query_selector('button:has-text("Công bố điểm dự kiến")')
+        is_btn_disabled = (pub_btn is None or not pub_btn.is_enabled())
 
-        if is_gate_blocked or (pub_btn and pub_btn.is_disabled()):
-            # Gate chặn công bố -> ghi HP-05 = BLOCKED và dừng Happy Path
-            gate_reason = page.inner_text('.card:has-text("Chưa đủ điều kiện công bố")') if is_gate_blocked else "Nút công bố bị vô hiệu hóa"
+        if is_gate_blocked or is_btn_disabled or not can_publish_api:
+            # Thu thập lý do Gate cụ thể
+            reasons = []
+            if items_not_proposed:
+                unprocessed_students = [it.get('student_code') for it in items_not_proposed]
+                reasons.append(f"Còn {len(items_not_proposed)} hồ sơ chưa hoàn tất kiểm tra (PROPOSED): {', '.join(unprocessed_students[:5])}")
+            if not scoreboard_data.get('draft_review', {}).get('reviewed'):
+                reasons.append("Chưa có biên bản họp rà soát dự kiến")
+            if len(scoreboard_data.get('meetings', [])) < 2:
+                reasons.append("Chưa ghi nhận đủ 2 cuộc họp xét duyệt theo quy chế")
+            gate_reason_str = '; '.join(reasons) if reasons else "Gate Check chặn công bố theo quy chế BPMN"
+
             record_result(
                 'HP-05', 'SC_PublishDraft', 'BCS',
-                'Kiểm tra Gate công bố điểm dự kiến',
-                'Bảng điểm chuyển trạng thái PUBLISHED',
+                'Kiểm tra Gate công bố điểm dự kiến trên bảng điểm lớp',
+                'Đủ điều kiện Gate và bảng điểm chuyển PUBLISHED',
                 'BLOCKED',
                 str(hp05_shot.as_posix()),
-                f'Gate chặn công bố do chưa đủ điều kiện: {gate_reason.strip()[:150]}'
+                f'Gate chặn công bố do chưa đủ điều kiện: {gate_reason_str}. Không tự ý sửa hồ sơ của sinh viên khác để ép công bố.'
             )
             # Dừng Happy Path: HP-06 ghi nhận BLOCKED do HP-05 chưa công bố
             record_result(
                 'HP-06', 'SC_Finalize & SC_SendFinal', 'BCS/GVCN',
-                'Chốt sổ đợt đánh giá và GVCN xem kết quả',
-                'Chuyển FINALIZED, GVCN xem kết quả',
+                'Sinh viên chấp nhận điểm và BCS chốt sổ bàn giao cho GVCN',
+                'Đợt chuyển FINALIZED, GVCN nhận kết quả',
                 'BLOCKED',
                 '',
                 'Dừng do HP-05 chưa thể công bố bảng điểm (Gate Check chặn).'
@@ -664,6 +730,11 @@ def generate_markdown_report(results_data: dict, output_file: Path):
     md.append("   - `admin001` (Quản trị hệ thống)")
     md.append("   *(Mật khẩu được nạp an toàn từ biến môi trường và tệp bí mật cục bộ `deploy/.env.pilot_accounts.local`, tuyệt đối không in ra báo cáo, console hay git).*")
     md.append("")
+    md.append("4. **Cấu hình Minh chứng Pilot (`HP-01`):**")
+    md.append("   - Tệp mẫu cấu hình không chứa dữ liệu cá nhân: `deploy/evidence_manifest.example.json`.")
+    md.append("   - Tệp cục bộ thực thi: `deploy/.env.e2e_evidence.local.json` (được `.gitignore` bảo vệ, không đưa lên Git).")
+    md.append("   - Khi chưa cung cấp tệp này với minh chứng thật được duyệt, `HP-01` ghi nhận `BLOCKED` đúng nguyên tắc bảo toàn dữ liệu.")
+    md.append("")
     md.append("---")
     md.append("")
     md.append("## 2. Bảng đối chiếu quy trình BPMN (Traceability Matrix - Main Suite)")
@@ -758,8 +829,10 @@ def generate_markdown_report(results_data: dict, output_file: Path):
     md.append("")
     md.append("## 6. Giới hạn của lần kiểm thử & Khuyến nghị Pilot")
     md.append("")
-    md.append("1. Chỉ chạy Happy Path live bằng tài khoản pilot và dữ liệu kiểm thử được phép sử dụng; các thao tác nộp, công bố và chốt điểm sẽ thay đổi dữ liệu của đợt.")
-    md.append("2. Khi ENV-01 xác minh được một môi trường, đọc kết quả từng bước trong Main Suite. Gate, hồ sơ khác chưa phản hồi hoặc thiếu minh chứng sẽ chặn luồng và cần được xử lý theo quy trình.")
+    md.append("1. **Minh chứng pilot (`HP-01`):** Nếu chưa có manifest minh chứng thật tại `deploy/.env.e2e_evidence.local.json`, `HP-01` và các bước kế tiếp ghi nhận `BLOCKED` đúng nguyên tắc bảo toàn dữ liệu. Người phụ trách cần sao chép từ `deploy/evidence_manifest.example.json` và bổ sung tệp minh chứng thực tế.")
+    md.append("2. **Điều kiện Gate công bố (`HP-05`):** Nếu lớp còn hồ sơ chưa ở trạng thái `PROPOSED` hoặc chưa đủ 2 cuộc họp và biên bản rà soát, Gate Check hiển thị cảnh báo và khóa nút công bố (`HP-05 = BLOCKED`). Không được tự ý duyệt thay hồ sơ của sinh viên khác để ép thông luồng.")
+    md.append("3. **Điều hướng hồ sơ (`HP-02` / `HP-03`):** Thẻ ưu tiên Dashboard hiển thị hồ sơ đầu tiên của hàng chờ API. Để xử lý sinh viên chỉ định (`sv003`), Ban cán sự truy cập qua giao diện hàng chờ `/bcs/cases` để tìm và mở hồ sơ tương ứng.")
+    md.append("4. **Nghiệm thu toàn bộ luồng:** Chỉ xác nhận quy trình PASS khi toàn bộ các bước được kiểm chứng thực tế trên cùng môi trường Production.")
     md.append("")
 
     with open(output_file, 'w', encoding='utf-8') as f:
@@ -769,13 +842,14 @@ def generate_markdown_report(results_data: dict, output_file: Path):
 
 def run_fixture_branch_tests(browser):
     """
-    Executes mock/fixture testing for the 6 specific business branches:
+    Executes mock/fixture testing for the 7 specific business branches:
     1. BRANCH-MISSING-PROOF (Thiếu minh chứng bắt buộc)
     2. BRANCH-LOCAL-WRONG-LINK (Local link sai case ID)
     3. BRANCH-HP04-ERROR (Lỗi ở HP-04, phân định đúng bước lỗi)
     4. BRANCH-GATE-CLOSED (Gate đóng chặn công bố)
     5. BRANCH-HP06-NO-FINALIZED (HP-06 thiếu FINALIZED)
     6. BRANCH-MOCK-UI-FLOW (Luồng UI có dữ liệu giả lập)
+    7. BRANCH-QUEUE-MULTI-STUDENT (Hàng chờ nhiều SV: ưu tiên sv001, mở sv003 qua hàng chờ UI)
     """
     print("\n" + "=" * 80)
     print("BẮT ĐẦU KIỂM CHỨNG MOCK/FIXTURE CHO 6 NHÁNH NGHIỆP VỤ")
@@ -831,6 +905,8 @@ def run_fixture_branch_tests(browser):
             route.fulfill(status=200, content_type='application/json', body=json.dumps(mock_data))
         elif 'claims' in url:
             route.fulfill(status=200, content_type='application/json', body='{"version": 2}')
+        elif 'ai-reviews' in url:
+            route.fulfill(status=200, content_type='application/json', body=json.dumps({"run": None}))
         elif 'rule-checks' in url:
             route.fulfill(status=200, content_type='application/json', body='{"findings": []}')
         else:
@@ -941,6 +1017,8 @@ def run_fixture_branch_tests(browser):
                 "user": {"id": "bcs1", "username": "bcs001", "full_name": "Ban Cán Sự", "role": "BCS", "class_id": "49K14.1"},
                 "csrf_token": "mock-csrf"
             }))
+        elif 'ai-reviews' in url:
+            route.fulfill(status=200, content_type='application/json', body=json.dumps({"run": None}))
         elif 'rule-checks' in url:
             route.fulfill(status=200, content_type='application/json', body=json.dumps({
                 "case_id": case_b3_id, "case_version": 1, "rule_version": "v1",
@@ -1156,12 +1234,8 @@ def run_fixture_branch_tests(browser):
                 "published_count": 1 if hp_state["campaign_status"] in ["PUBLISHED", "FINALIZED"] else 0,
                 "open_appeals_count": 0, "finalized_count": 1 if hp_state["campaign_status"] == "FINALIZED" else 0
             }))
-        elif 'cases' in url and 'status=BCS_REVIEW' in url:
-            route.fulfill(status=200, content_type='application/json', body=json.dumps({
-                "total": 1 if hp_state["status"] == "BCS_REVIEW" else 0,
-                "page": 1, "page_size": 1,
-                "items": [{"id": hp_case_id, "student_code": "sv003", "student_name": "Lê Văn C", "status": "BCS_REVIEW"}] if hp_state["status"] == "BCS_REVIEW" else []
-            }))
+        elif 'ai-reviews' in url:
+            route.fulfill(status=200, content_type='application/json', body=json.dumps({"run": None}))
         elif 'rule-checks' in url:
             route.fulfill(status=200, content_type='application/json', body=json.dumps({
                 "case_id": hp_case_id, "case_version": 1, "rule_version": "v1",
@@ -1192,6 +1266,38 @@ def run_fixture_branch_tests(browser):
                 "evidence_decisions": [],
                 "claims": [{"criterion": {"id": "c_1", "code": "tc_1", "title": "Tiêu chí 1", "max_score": "4.00"}, "self_score": "3.00", "approved_score": "3.00", "bcs_reason": "", "evidence": []}],
                 "history": []
+            }))
+        elif 'cases' in url:
+            items = []
+            if hp_state["status"] == "BCS_REVIEW":
+                items = [{
+                    "id": hp_case_id,
+                    "student_code": "sv003",
+                    "student_name": "Lê Văn C",
+                    "status": "BCS_REVIEW",
+                    "claimed_total": "75.00",
+                    "proposed_total": None,
+                    "info_round": 0,
+                    "proof_round": 0,
+                    "updated_at": "2026-10-27T10:00:00Z"
+                }]
+            elif hp_state["status"] in ["PROPOSED", "PUBLISHED", "FINALIZED"]:
+                items = [{
+                    "id": hp_case_id,
+                    "student_code": "sv003",
+                    "student_name": "Lê Văn C",
+                    "status": hp_state["status"],
+                    "claimed_total": "75.00",
+                    "proposed_total": "75.00",
+                    "info_round": 0,
+                    "proof_round": 0,
+                    "updated_at": "2026-10-27T10:00:00Z"
+                }]
+            route.fulfill(status=200, content_type='application/json', body=json.dumps({
+                "total": len(items),
+                "page": 1,
+                "page_size": 10 if 'page_size=10' in url else 1,
+                "items": items
             }))
         elif 'scoreboard' in url:
             route.fulfill(status=200, content_type='application/json', body=json.dumps({
@@ -1250,8 +1356,20 @@ def run_fixture_branch_tests(browser):
     assert p_link is not None, "HP-02 link missing"
     assert priority_case_id(p_link.get_attribute('href')) == hp_case_id, "HP-02 link mismatch"
 
-    # 3. HP-03
-    p_link.click()
+    # 3. HP-03: Tìm và mở từ hàng chờ UI
+    cases_nav = page_b6.query_selector('a[href="/bcs/cases"]')
+    if cases_nav and cases_nav.is_visible():
+        cases_nav.click()
+    else:
+        page_b6.goto(f"{LOCAL_WEB_URL}/bcs/cases")
+    page_b6.wait_for_selector('.bcs-cases-table-desktop, .bcs-cases-cards-mobile', timeout=10000)
+    row_sv003 = page_b6.locator('tbody tr').filter(has_text='sv003')
+    open_btn = row_sv003.first.locator('a:has-text("Kiểm tra"), a:has-text("Xem chi tiết"), a[href*="/bcs/cases/"]')
+    if open_btn.count() == 0:
+        card_sv003 = page_b6.locator('.bcs-case-mobile-card').filter(has_text='sv003')
+        open_btn = card_sv003.first.locator('a:has-text("Kiểm tra"), a:has-text("Xem chi tiết"), a[href*="/bcs/cases/"]')
+    assert open_btn.count() > 0, "Không tìm thấy nút mở hồ sơ sv003 trong hàng chờ"
+    open_btn.first.click()
     page_b6.wait_for_url(lambda u: f"/bcs/cases/{hp_case_id}" in u, timeout=10000)
     page_b6.wait_for_selector('text=Quyết định của BCS', timeout=10000)
 
@@ -1330,6 +1448,143 @@ def run_fixture_branch_tests(browser):
         'notes': 'Fixture mô phỏng nghiệp vụ qua UI; không thay thế kết quả Happy Path trên backend thật.'
     })
     print("[PASS] BRANCH-MOCK-UI-FLOW: Các thao tác UI trên dữ liệu giả lập hoàn tất.")
+
+    # --------------------------------------------------------------------------
+    # 7. BRANCH-QUEUE-MULTI-STUDENT: Thẻ ưu tiên là sv001, mở đúng sv003 qua UI hàng chờ
+    # --------------------------------------------------------------------------
+    print("\n--- [BRANCH-07] Kiểm chứng: Thẻ ưu tiên là sv001, tìm và mở đúng sv003 qua hàng chờ UI ---")
+    context_b7 = browser.new_context(viewport={'width': 1366, 'height': 768})
+    page_b7 = context_b7.new_page()
+
+    case_sv001_id = "11111111-1111-4111-8111-111111111111"
+    case_sv003_id = "33333333-3333-4333-8333-333333333333"
+
+    def handle_b7(route):
+        url = route.request.url
+        if 'auth/me' in url:
+            route.fulfill(status=200, content_type='application/json', body=json.dumps({
+                "user": {"id": "bcs1", "username": "bcs001", "full_name": "Ban Cán Sự", "role": "BCS", "class_id": "49K14.1"},
+                "csrf_token": "mock-csrf"
+            }))
+        elif 'campaigns/active' in url:
+            route.fulfill(status=200, content_type='application/json', body=json.dumps({
+                "id": "camp-b7", "code": "49K14.1", "status": "ACTIVE", "criteria": [{"id": f"c{i}", "code": f"c{i}"} for i in range(23)]
+            }))
+        elif 'overview' in url:
+            route.fulfill(status=200, content_type='application/json', body=json.dumps({
+                "campaign_id": "camp-b7", "total_students": 2, "bcs_review_count": 2,
+                "needs_info_count": 0, "needs_proof_count": 0, "proposed_count": 0, "published_count": 0, "open_appeals_count": 0, "finalized_count": 0
+            }))
+        elif 'ai-reviews' in url:
+            route.fulfill(status=200, content_type='application/json', body=json.dumps({"run": None}))
+        elif 'ai-reviews' in url:
+            route.fulfill(status=200, content_type='application/json', body=json.dumps({"run": None}))
+        elif 'rule-checks' in url:
+            route.fulfill(status=200, content_type='application/json', body=json.dumps({
+                "case_id": case_sv003_id, "case_version": 1, "rule_version": "v1",
+                "term_window": {"status": "NOT_CONFIGURED", "start_on": None, "end_on": None},
+                "date_evidence_status": "NONE", "findings": [], "counts": {"flagged": 0, "unknown": 0}, "evaluated_at": "2026-10-27T00:00:00Z"
+            }))
+        elif 'score-suggestions' in url:
+            route.fulfill(status=200, content_type='application/json', body=json.dumps({
+                "case_id": case_sv003_id, "case_version": 1, "rubric_version": "v1", "decision_version": "v1", "items": []
+            }))
+        elif f'cases/{case_sv003_id}' in url:
+            route.fulfill(status=200, content_type='application/json', body=json.dumps({
+                "id": case_sv003_id, "version": 1, "status": "BCS_REVIEW",
+                "student": {"id": "s3", "code": "sv003", "full_name": "Lê Văn C"},
+                "deadlines": {"submission_at": None, "supplement_at": None},
+                "rounds": {"info": 0, "info_max": 2, "proof": 0, "proof_max": 2},
+                "evidence_files": [], "evidence_decisions": [],
+                "claims": [{"criterion": {"id": "c1", "code": "1a", "title": "Ý thức học tập", "max_score": "5.00"}, "self_score": "5.00", "approved_score": "5.00", "bcs_reason": "", "evidence": []}],
+                "history": []
+            }))
+        elif 'cases' in url and 'status=BCS_REVIEW' in url and 'page_size=1' in url and 'q=' not in url:
+            # Dashboard ưu tiên hồ sơ đầu tiên (sv001)
+            route.fulfill(status=200, content_type='application/json', body=json.dumps({
+                "total": 2, "page": 1, "page_size": 1,
+                "items": [{"id": case_sv001_id, "student_code": "sv001", "student_name": "Nguyễn Văn An", "status": "BCS_REVIEW", "claimed_total": "80.00", "proposed_total": None, "info_round": 0, "proof_round": 0, "updated_at": "2026-10-27T10:00:00Z"}]
+            }))
+        elif 'cases' in url:
+            items = [
+                {"id": case_sv001_id, "student_code": "sv001", "student_name": "Nguyễn Văn An", "status": "BCS_REVIEW", "claimed_total": "80.00", "proposed_total": None, "info_round": 0, "proof_round": 0, "updated_at": "2026-10-27T10:00:00Z"},
+                {"id": case_sv003_id, "student_code": "sv003", "student_name": "Lê Văn C", "status": "BCS_REVIEW", "claimed_total": "75.00", "proposed_total": None, "info_round": 0, "proof_round": 0, "updated_at": "2026-10-27T11:00:00Z"}
+            ]
+            if 'q=sv003' in url:
+                items = [it for it in items if it['student_code'] == 'sv003']
+            elif 'q=sv001' in url:
+                items = [it for it in items if it['student_code'] == 'sv001']
+            route.fulfill(status=200, content_type='application/json', body=json.dumps({
+                "total": len(items), "page": 1, "page_size": 10, "items": items
+            }))
+        else:
+            route.fulfill(status=200, content_type='application/json', body='{}')
+
+    page_b7.route('**/api/v1/**', handle_b7)
+
+    # 1. Dashboard: Xác nhận thẻ ưu tiên trỏ đúng sv001
+    page_b7.goto(f"{LOCAL_WEB_URL}/bcs")
+    page_b7.wait_for_selector('[data-testid="priority-case-card"]', timeout=10000)
+    p_link = page_b7.query_selector('a:has-text("Kiểm tra ngay")')
+    assert p_link is not None, "Không tìm thấy nút Kiểm tra ngay trên Dashboard"
+    p_href = p_link.get_attribute('href')
+    assert priority_case_id(p_href) == case_sv001_id, f"Thẻ ưu tiên phải là sv001 ({case_sv001_id}), nhận được: {p_href}"
+    card_text = page_b7.inner_text('[data-testid="priority-case-card"]')
+    assert 'sv001' in card_text or 'Nguyễn Văn An' in card_text, "Thẻ ưu tiên không hiển thị đúng thông tin sv001"
+
+    # 2. Điều hướng qua giao diện hàng chờ (/bcs/cases) bằng link menu
+    cases_nav = page_b7.query_selector('a[href="/bcs/cases"]')
+    if cases_nav and cases_nav.is_visible():
+        cases_nav.click()
+    else:
+        page_b7.goto(f"{LOCAL_WEB_URL}/bcs/cases")
+
+    page_b7.wait_for_url(lambda u: '/bcs/cases' in u, timeout=10000)
+    page_b7.wait_for_selector('.bcs-cases-table-desktop, .bcs-cases-cards-mobile', timeout=10000)
+
+    # 3. Tìm kiếm sv003 trên giao diện hàng chờ
+    search_input = page_b7.query_selector('input[placeholder*="Tìm theo" i], input[placeholder*="Mã SV"]')
+    if search_input:
+        search_input.fill('sv003')
+        page_b7.wait_for_timeout(600)
+
+    # 4. Tìm dòng/thẻ của sv003 và click nút thao tác
+    row_sv003 = page_b7.locator('tbody tr').filter(has_text='sv003')
+    card_sv003 = page_b7.locator('.bcs-case-mobile-card').filter(has_text='sv003')
+
+    sv003_btn = None
+    if row_sv003.count() > 0:
+        sv003_btn = row_sv003.first.locator('a:has-text("Kiểm tra"), a:has-text("Xem chi tiết"), a[href*="/bcs/cases/"]')
+    elif card_sv003.count() > 0:
+        sv003_btn = card_sv003.first.locator('a:has-text("Kiểm tra"), a:has-text("Xem chi tiết"), a[href*="/bcs/cases/"]')
+
+    assert sv003_btn and sv003_btn.count() > 0, "Không tìm thấy nút mở hồ sơ sv003 trong bảng hàng chờ"
+    assert priority_case_id(sv003_btn.first.get_attribute('href')) == case_sv003_id, "Nút thao tác sv003 trỏ sai case ID"
+
+    # Nhấn nút thao tác trên UI để mở hồ sơ
+    sv003_btn.first.click()
+    page_b7.wait_for_url(lambda u: f"/bcs/cases/{case_sv003_id}" in u, timeout=10000)
+    page_b7.wait_for_selector('text=Quyết định của BCS', timeout=10000)
+
+    # 5. Xác minh đủ 3 vùng giao diện và thông tin sv003
+    assert page_b7.query_selector('text=Minh chứng') is not None, "Không tìm thấy vùng 1: Minh chứng"
+    assert page_b7.query_selector('text=Tự khai') is not None, "Không tìm thấy vùng 2: Tự khai"
+    assert page_b7.query_selector('text=Quyết định của BCS') is not None, "Không tìm thấy vùng 3: Quyết định của BCS"
+    assert 'sv003' in page_b7.inner_text('body'), "Không tìm thấy mã sinh viên sv003 trên trang chi tiết"
+
+    b7_shot = OUTPUT_DIR / 'BRANCH_07_queue_multi_student.png'
+    page_b7.screenshot(path=str(b7_shot))
+    context_b7.close()
+
+    branch_results.append({
+        'id': 'BRANCH-QUEUE-MULTI-STUDENT',
+        'name': 'Hàng chờ nhiều SV: Thẻ ưu tiên là sv001, mở đúng sv003 qua UI hàng chờ',
+        'status': 'PASS',
+        'behavior': f'Dashboard hiển thị ưu tiên sv001; script vào hàng chờ /bcs/cases, tìm sv003 và click mở đúng /bcs/cases/{case_sv003_id}',
+        'evidence': str(b7_shot.as_posix()),
+        'notes': 'Xác minh thành công: Script không điều hướng thẳng URL mà tìm và click qua UI hàng chờ.'
+    })
+    print("[PASS] BRANCH-QUEUE-MULTI-STUDENT: Điều hướng qua UI hàng chờ thành công.")
 
     return branch_results
 

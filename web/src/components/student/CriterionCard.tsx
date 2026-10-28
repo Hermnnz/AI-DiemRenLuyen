@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useRef, useState, useMemo } from 'react';
 import { Criterion, Claim, SupplementRequest } from '../../api/types';
 import { EvidenceViewer } from './EvidenceViewer';
 import { Upload, Loader2, AlertCircle, CheckCircle2, Lock, Info, Award } from 'lucide-react';
@@ -139,6 +139,16 @@ export const CriterionCard: React.FC<CriterionCardProps> = ({
   const hasEvidence = claim.evidence && claim.evidence.length > 0;
   const isFlagged = !!supplementRequest;
   const options = criterion.rule_config?.options;
+
+  // Thống nhất chuẩn thiết kế UX: Điểm cao nhất luôn ở trên cùng, giảm dần xuống 0.00đ
+  const sortedOptions = useMemo(() => {
+    if (!options || options.length === 0) return [];
+    return [...options].sort((a, b) => {
+      const scoreA = typeof (a as any).points !== 'undefined' ? Number((a as any).points) : Number(a.score);
+      const scoreB = typeof (b as any).points !== 'undefined' ? Number((b as any).points) : Number(b.score);
+      return scoreB - scoreA;
+    });
+  }, [options]);
 
   return (
     <div className={`criterion-card ${isFlagged ? 'flagged' : ''}`} style={{ marginBottom: '1.25rem' }}>
@@ -310,13 +320,13 @@ export const CriterionCard: React.FC<CriterionCardProps> = ({
       ) : (
         <>
           {/* 4. Giao diện tự chấm điểm */}
-          {options && options.length > 0 ? (
+          {sortedOptions && sortedOptions.length > 0 ? (
             <div style={{ marginTop: '0.75rem', marginBottom: '0.75rem' }}>
               <div style={{ fontSize: '0.8125rem', fontWeight: 600, color: '#475569', marginBottom: '0.4rem' }}>
                 Chọn mức điểm phù hợp với bạn:
               </div>
               <div className="criterion-options-list">
-                {options.map((opt, i) => {
+                {sortedOptions.map((opt, i) => {
                   const optScore = typeof (opt as any).points !== 'undefined'
                     ? Number((opt as any).points)
                     : Number(opt.score);

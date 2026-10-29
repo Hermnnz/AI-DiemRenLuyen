@@ -292,7 +292,7 @@ export interface AiReviewRun {
   provider: string | null;
   model: string | null;
   prompt_version: string | null;
-  result: { mode?: string; summary?: string; needs_human_review?: boolean; rule_checks?: RuleCheckResponse; score_suggestions?: ScoreSuggestionResponse; auto_accepted_evidence?: Array<{ evidence_file_id: string; confidence: number; threshold: number }> } | null;
+  result: { mode?: string; summary?: string; needs_human_review?: boolean; rule_checks?: RuleCheckResponse; score_suggestions?: ScoreSuggestionResponse; auto_accept_threshold?: number; auto_accepted_evidence?: Array<{ evidence_file_id: string; confidence: number; threshold: number }> } | null;
   error_code: string | null;
   created_at: string;
   started_at: string | null;

@@ -742,7 +742,7 @@ export const BcsCaseDetail: React.FC = () => {
                 AI tạm chấp nhận minh chứng đủ căn cứ ở ngưỡng 95%. BCS vẫn chốt điểm và có thể bác kết luận AI với lý do.
               </p>
             </div>
-            {caseData.status === 'BCS_REVIEW' && (!aiRun || aiRun.stale || !['QUEUED', 'RUNNING'].includes(aiRun.status)) && (
+            {caseData.status === 'BCS_REVIEW' && (!aiRun || aiRun.stale || (aiRun.result?.auto_accept_threshold === undefined && !['QUEUED', 'RUNNING'].includes(aiRun.status))) && (
               <button type="button" className="btn btn-secondary" onClick={handleQueueAiReview} disabled={aiBusy} aria-busy={aiBusy}>
                 {aiBusy && <Loader2 size={14} className="ai-spinner" aria-hidden="true" />}
                 <span role={aiBusy ? 'status' : undefined}>{aiBusy ? 'Đang phân tích minh chứng...' : aiRun ? 'Phân tích lại minh chứng bằng AI' : 'Phân tích và xét minh chứng bằng AI'}</span>

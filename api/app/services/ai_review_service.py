@@ -348,7 +348,8 @@ async def run_ai_tick(db: Session, limit: int = 1, target_run_id: str | None = N
             if not settings.AI_READ_ENABLED or not settings.GEMINI_API_KEY:
                 manual = ManualReviewProvider().review(run.case_id)
                 run.status = "NEEDS_HUMAN"
-                run.result_json = {**manual.model_dump(), "rule_checks": (run.result_json or {}).get("rule_checks")}
+                run.result_json = {**manual.model_dump(), "rule_checks": (run.result_json or {}).get("rule_checks"),
+                                   "auto_accept_threshold": settings.AI_AUTO_ACCEPT_THRESHOLD}
                 run.result_json["score_suggestions"] = evaluate_score_suggestions(
                     db, db.query(Case).filter(Case.id == run.case_id).one(),
                     rule_checks=run.result_json["rule_checks"], rubric_version=run.rubric_version,
@@ -415,7 +416,8 @@ async def run_ai_tick(db: Session, limit: int = 1, target_run_id: str | None = N
             run.finished_at = None if retryable else datetime.now(timezone.utc)
             if not retryable:
                 run.result_json = {**ManualReviewProvider().review(run.case_id).model_dump(),
-                                   "rule_checks": (run.result_json or {}).get("rule_checks")}
+                                   "rule_checks": (run.result_json or {}).get("rule_checks"),
+                                   "auto_accept_threshold": settings.AI_AUTO_ACCEPT_THRESHOLD}
                 run.result_json["score_suggestions"] = evaluate_score_suggestions(
                     db, db.query(Case).filter(Case.id == run.case_id).one(),
                     rule_checks=run.result_json["rule_checks"], rubric_version=run.rubric_version,

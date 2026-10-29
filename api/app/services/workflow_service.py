@@ -66,11 +66,11 @@ def initialize_campaign_cases(db: Session, campaign: Campaign):
 
 
 def open_campaign(db: Session, campaign: Campaign, actor_user_id: Optional[str], now: datetime):
-    if campaign.status != "DRAFT":
+    if campaign.status not in ("DRAFT", "SCHEDULED"):
         raise AppError(
             status_code=409,
             code="INVALID_STATE",
-            message=f"Chỉ có thể lên lịch hoặc mở đợt khi đang ở trạng thái DRAFT (hiện tại: {campaign.status})."
+            message=f"Chỉ có thể lên lịch hoặc mở đợt khi đang ở trạng thái DRAFT/SCHEDULED (hiện tại: {campaign.status})."
         )
 
     # Convert open_at to utc-aware for comparison if naive
@@ -78,6 +78,8 @@ def open_campaign(db: Session, campaign: Campaign, actor_user_id: Optional[str],
     if open_at.tzinfo is None:
         open_at = open_at.replace(tzinfo=timezone.utc)
 
+    if open_at > now and campaign.status == "SCHEDULED":
+        raise AppError(status_code=409, code="OPEN_TIME_NOT_REACHED", message="Chưa tới thời gian mở đợt. Admin có thể chỉnh lại thời gian mở nếu cần.")
     if open_at > now:
         campaign.status = "SCHEDULED"
         log_audit(db, campaign_id=campaign.id, action="CAMPAIGN_SCHEDULED", actor_user_id=actor_user_id)

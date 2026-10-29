@@ -5,7 +5,7 @@ import json
 
 from sqlalchemy.orm import Session
 
-from api.app.models.entities import AuditEvent, Campaign, Case, Claim, Meeting
+from api.app.models.entities import AuditEvent, Campaign, Case, Claim, Criterion, Meeting
 from api.app.schemas import format_datetime, format_score
 
 
@@ -23,6 +23,10 @@ def draft_fingerprint(db: Session, campaign: Campaign) -> str:
         })
     payload = {
         "meeting": {"held_at": format_datetime(bcs_meeting.held_at), "note": bcs_meeting.note} if bcs_meeting else None,
+        "criteria": [{"id": item.id, "code": item.code, "title": item.title,
+                      "description": item.description, "max_score": format_score(item.max_score),
+                      "requires_evidence": item.requires_evidence, "rule_config": item.rule_config}
+                     for item in db.query(Criterion).filter(Criterion.campaign_id == campaign.id).order_by(Criterion.id).all()],
         "cases": rows,
     }
     canonical = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))

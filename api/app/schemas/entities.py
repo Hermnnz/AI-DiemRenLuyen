@@ -58,6 +58,7 @@ class CriterionSchema(BaseModel):
 
 
 class CreateCriterionInput(BaseModel):
+    id: Optional[str] = None
     code: str
     section_code: Optional[str] = None
     section_title: Optional[str] = None

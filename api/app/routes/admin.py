@@ -49,6 +49,44 @@ from api.app.services.template_service import (
 router = APIRouter(prefix="/admin", tags=["Admin"])
 
 
+def _campaign_config_audit_snapshot(campaign: Campaign, criteria: list[Criterion]) -> dict:
+    return {
+        "status": campaign.status,
+        "class_id": campaign.class_id,
+        "title": campaign.title,
+        "term": campaign.term,
+        "term_start_on": campaign.term_start_on.isoformat() if campaign.term_start_on else None,
+        "term_end_on": campaign.term_end_on.isoformat() if campaign.term_end_on else None,
+        "template_code": campaign.template_code,
+        "open_at": format_datetime(campaign.open_at),
+        "submission_deadline_at": format_datetime(campaign.submission_deadline_at),
+        "supplement_period_hours": campaign.supplement_period_hours,
+        "appeal_period_hours": campaign.appeal_period_hours,
+        "reminder_after_hours": campaign.reminder_after_hours,
+        "max_info_rounds": campaign.max_info_rounds,
+        "max_proof_rounds": campaign.max_proof_rounds,
+        "criteria": [{
+            "id": c.id, "code": c.code, "section_code": c.section_code,
+            "section_title": c.section_title,
+            "section_max_score": format_score(c.section_max_score),
+            "title": c.title, "description": c.description,
+            "max_score": format_score(c.max_score),
+            "requires_evidence": c.requires_evidence,
+            "evidence_notes": c.evidence_notes,
+            "allowed_input_roles": c.allowed_input_roles,
+            "rule_config": c.rule_config,
+            "sort_order": c.sort_order,
+        } for c in criteria],
+    }
+
+
+def _criterion_update_value(crit_in: CreateCriterionInput, previous: Optional[Criterion], field: str):
+    # Older clients send only basic fields. Omitted metadata must not erase the approved rubric.
+    if previous is not None and field not in crit_in.model_fields_set:
+        return getattr(previous, field)
+    return getattr(crit_in, field)
+
+
 def _validate_campaign_config(payload: CreateCampaignRequest, db: Session):
     cls = db.query(Class).filter(Class.id == payload.class_id).first()
     if not cls:
@@ -259,14 +297,63 @@ def update_campaign(
     if not campaign:
         raise AppError(status_code=404, code="NOT_FOUND", message="Không tìm thấy đợt đánh giá.")
 
-    if campaign.status != "DRAFT":
+    if campaign.status not in ("DRAFT", "SCHEDULED", "OPEN", "REVIEW"):
         raise AppError(
             status_code=409,
             code="INVALID_STATE",
-            message=f"Chỉ có thể chỉnh sửa cấu hình khi đợt ở trạng thái DRAFT (hiện tại: {campaign.status})."
+            message=f"Không thể chỉnh sửa đợt ở trạng thái {campaign.status}."
         )
 
+    if campaign.status != "DRAFT" and payload.class_id != campaign.class_id:
+        raise AppError(status_code=409, code="CLASS_CHANGE_FORBIDDEN", message="Không thể chuyển đợt đã lên lịch hoặc đã mở sang lớp khác.")
+    if campaign.status != "DRAFT" and payload.template_code != campaign.template_code:
+        raise AppError(status_code=409, code="TEMPLATE_CHANGE_FORBIDDEN", message="Không thể thay mẫu quy tắc của đợt đã lên lịch hoặc đã mở.")
+
     open_at, sub_dl, term_start_on, term_end_on = _validate_campaign_config(payload, db)
+
+    previous_criteria = db.query(Criterion).filter(Criterion.campaign_id == campaign.id).all()
+    by_id = {item.id: item for item in previous_criteria}
+    by_code = {item.code: item for item in previous_criteria}
+    matched_ids: set[str] = set()
+    criterion_changes = False
+    # Validate first: an active campaign may already have claims and evidence bound to criterion IDs.
+    for crit_in in payload.criteria:
+        if crit_in.id and not crit_in.id.startswith("crit-new-") and crit_in.id not in by_id:
+            raise AppError(status_code=422, code="INVALID_CRITERION_ID", message=f"Tiêu chí {crit_in.code} không thuộc đợt này.")
+        previous = by_id.get(crit_in.id) if crit_in.id else by_code.get(crit_in.code)
+        if previous:
+            if previous.id in matched_ids:
+                raise AppError(status_code=422, code="DUPLICATE_CRITERION", message=f"Tiêu chí {crit_in.code} xuất hiện nhiều lần.")
+            matched_ids.add(previous.id)
+            new_max = parse_score(crit_in.max_score)
+            for claim in db.query(Claim).filter(Claim.criterion_id == previous.id).all():
+                if (claim.self_score is not None and claim.self_score > new_max) or (claim.approved_score is not None and claim.approved_score > new_max):
+                    raise AppError(status_code=409, code="SCORE_EXCEEDS_NEW_MAX", message=f"Tiêu chí {previous.code} đã có điểm cao hơn trần mới. Hãy xử lý hồ sơ trước khi hạ điểm tối đa.")
+            next_section_max = _criterion_update_value(crit_in, previous, "section_max_score")
+            next_section_max = parse_score(next_section_max) if next_section_max is not None else None
+            if (previous.code != crit_in.code or previous.title != crit_in.title or previous.description != crit_in.description
+                    or previous.max_score != new_max or previous.requires_evidence != crit_in.requires_evidence
+                    or previous.rule_config != _criterion_update_value(crit_in, previous, "rule_config")
+                    or previous.allowed_input_roles != _criterion_update_value(crit_in, previous, "allowed_input_roles")
+                    or previous.evidence_notes != _criterion_update_value(crit_in, previous, "evidence_notes")
+                    or previous.section_title != _criterion_update_value(crit_in, previous, "section_title")
+                    or previous.sort_order != crit_in.sort_order
+                    or previous.section_code != _criterion_update_value(crit_in, previous, "section_code")
+                    or previous.section_max_score != next_section_max):
+                criterion_changes = True
+        else:
+            criterion_changes = True
+
+    removed = [item for item in previous_criteria if item.id not in matched_ids]
+    for old in removed:
+        for claim in db.query(Claim).filter(Claim.criterion_id == old.id).all():
+            has_evidence = db.query(EvidenceFile.id).filter(EvidenceFile.claim_id == claim.id).first() is not None
+            if (claim.self_score is not None or claim.approved_score is not None or claim.student_note
+                    or claim.academic_gpa is not None or claim.bcs_reason or claim.reviewed_by or has_evidence):
+                raise AppError(status_code=409, code="CRITERION_HAS_DATA", message=f"Không thể xóa tiêu chí {old.code} vì đã có điểm, ghi chú hoặc minh chứng. Hãy giữ tiêu chí này để bảo toàn hồ sơ.")
+        criterion_changes = True
+
+    before_config = _campaign_config_audit_snapshot(campaign, previous_criteria)
 
     now = datetime.now(timezone.utc)
     campaign.class_id = payload.class_id
@@ -283,37 +370,51 @@ def update_campaign(
     campaign.max_proof_rounds = payload.max_proof_rounds
     campaign.updated_at = now
 
-    # Remove old criteria and insert updated criteria
-    previous_criteria = {item.code: item for item in db.query(Criterion).filter(Criterion.campaign_id == campaign.id).all()}
-    db.query(Criterion).filter(Criterion.campaign_id == campaign.id).delete()
     criteria_list = []
     for crit_in in payload.criteria:
-        previous = previous_criteria.get(crit_in.code)
-        crit = Criterion(
-            campaign_id=campaign.id,
-            code=crit_in.code,
-            section_code=crit_in.section_code or (previous.section_code if previous else None),
-            section_title=crit_in.section_title or (previous.section_title if previous else None),
-            section_max_score=(parse_score(crit_in.section_max_score) if crit_in.section_max_score
-                               else previous.section_max_score if previous else None),
-            title=crit_in.title,
-            description=crit_in.description,
-            max_score=parse_score(crit_in.max_score),
-            requires_evidence=crit_in.requires_evidence,
-            evidence_notes=crit_in.evidence_notes if crit_in.evidence_notes is not None else previous.evidence_notes if previous else None,
-            allowed_input_roles=crit_in.allowed_input_roles if crit_in.allowed_input_roles is not None else previous.allowed_input_roles if previous else None,
-            rule_config=crit_in.rule_config if crit_in.rule_config is not None else previous.rule_config if previous else None,
-            sort_order=crit_in.sort_order,
-            created_at=now,
-        )
-        db.add(crit)
+        crit = by_id.get(crit_in.id) if crit_in.id else by_code.get(crit_in.code)
+        is_new = crit is None
+        if is_new:
+            crit = Criterion(campaign_id=campaign.id, created_at=now)
+            db.add(crit)
+        crit.code = crit_in.code
+        crit.section_code = _criterion_update_value(crit_in, None if is_new else crit, "section_code")
+        crit.section_title = _criterion_update_value(crit_in, None if is_new else crit, "section_title")
+        section_max = _criterion_update_value(crit_in, None if is_new else crit, "section_max_score")
+        crit.section_max_score = parse_score(section_max) if section_max is not None else None
+        crit.title = crit_in.title
+        crit.description = crit_in.description
+        crit.max_score = parse_score(crit_in.max_score)
+        crit.requires_evidence = crit_in.requires_evidence
+        crit.evidence_notes = _criterion_update_value(crit_in, None if is_new else crit, "evidence_notes")
+        crit.allowed_input_roles = _criterion_update_value(crit_in, None if is_new else crit, "allowed_input_roles")
+        crit.rule_config = _criterion_update_value(crit_in, None if is_new else crit, "rule_config")
+        crit.sort_order = crit_in.sort_order
+        db.flush()
+        if is_new:
+            for case in db.query(Case).filter(Case.campaign_id == campaign.id).all():
+                db.add(Claim(case_id=case.id, criterion_id=crit.id, created_at=now))
         criteria_list.append(crit)
+
+    for old in removed:
+        db.query(Claim).filter(Claim.criterion_id == old.id).delete(synchronize_session=False)
+        db.delete(old)
+
+    if criterion_changes and campaign.status in ("OPEN", "REVIEW"):
+        # Previously proposed scores need a fresh BCS review against the revised rubric.
+        for case in db.query(Case).filter(Case.campaign_id == campaign.id).all():
+            case.version += 1
+            if case.status == "PROPOSED":
+                case.status = "BCS_REVIEW"
+                case.proposed_total = None
 
     log_audit(
         db,
         campaign_id=campaign.id,
         action="CAMPAIGN_UPDATED",
         actor_user_id=admin_user.id,
+        before_json=before_config,
+        after_json=_campaign_config_audit_snapshot(campaign, criteria_list),
     )
     db.commit()
     db.refresh(campaign)
@@ -323,10 +424,16 @@ def update_campaign(
             id=c.id,
             campaign_id=c.campaign_id,
             code=c.code,
+            section_code=c.section_code,
+            section_title=c.section_title,
+            section_max_score=format_score(c.section_max_score) if c.section_max_score is not None else None,
             title=c.title,
             description=c.description,
             max_score=format_score(c.max_score),
             requires_evidence=c.requires_evidence,
+            evidence_notes=c.evidence_notes,
+            allowed_input_roles=c.allowed_input_roles,
+            rule_config=c.rule_config,
             sort_order=c.sort_order,
         )
         for c in criteria_list
@@ -340,6 +447,7 @@ def update_campaign(
         term_start_on=campaign.term_start_on.isoformat() if campaign.term_start_on else None,
         term_end_on=campaign.term_end_on.isoformat() if campaign.term_end_on else None,
         status=campaign.status,
+        template_code=campaign.template_code,
         open_at=format_datetime(campaign.open_at),
         submission_deadline_at=format_datetime(campaign.submission_deadline_at),
         supplement_period_hours=campaign.supplement_period_hours,
@@ -392,10 +500,16 @@ def list_campaigns(
                 id=c.id,
                 campaign_id=c.campaign_id,
                 code=c.code,
+                section_code=c.section_code,
+                section_title=c.section_title,
+                section_max_score=format_score(c.section_max_score) if c.section_max_score is not None else None,
                 title=c.title,
                 description=c.description,
                 max_score=format_score(c.max_score),
                 requires_evidence=c.requires_evidence,
+                evidence_notes=c.evidence_notes,
+                allowed_input_roles=c.allowed_input_roles,
+                rule_config=c.rule_config,
                 sort_order=c.sort_order,
             )
             for c in crit_list
@@ -409,6 +523,7 @@ def list_campaigns(
                 term_start_on=camp.term_start_on.isoformat() if camp.term_start_on else None,
                 term_end_on=camp.term_end_on.isoformat() if camp.term_end_on else None,
                 status=camp.status,
+                template_code=camp.template_code,
                 open_at=format_datetime(camp.open_at),
                 submission_deadline_at=format_datetime(camp.submission_deadline_at),
                 supplement_period_hours=camp.supplement_period_hours,

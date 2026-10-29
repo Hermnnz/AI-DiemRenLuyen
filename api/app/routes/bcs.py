@@ -21,6 +21,7 @@ from api.app.models.entities import (
 )
 from api.app.schemas import (
     CampaignSchema,
+    OpenCampaignResponse,
     BcsCampaignOverview,
     BcsCaseListItem,
     BcsCaseListResponse,
@@ -63,7 +64,7 @@ from api.app.schemas import (
 )
 from api.app.services.auth_service import require_roles, verify_csrf
 from api.app.services.scoring_service import parse_score, validate_score_bounds, validate_criterion_levels, sum_scores
-from api.app.services.workflow_service import complete_bcs_case_review, publish_campaign, finalize_campaign
+from api.app.services.workflow_service import complete_bcs_case_review, publish_campaign, finalize_campaign, open_campaign
 from api.app.services.audit_service import log_audit
 from api.app.services.notification_service import send_notification
 from api.app.services.evidence_decision_service import required_evidence_file_ids
@@ -82,6 +83,22 @@ def _verify_bcs_class(user: User, class_ids: List[str], campaign_class_id: str):
             code="FORBIDDEN",
             message="Bạn không có quyền quản lý đợt đánh giá của lớp này.",
         )
+
+
+@router.post("/campaigns/{id}/open", response_model=OpenCampaignResponse, dependencies=[Depends(verify_csrf)])
+def bcs_open_campaign(
+    id: str,
+    auth_data: tuple[User, list[str]] = Depends(require_roles("BCS")),
+    db: Session = Depends(get_db),
+):
+    user, class_ids = auth_data
+    campaign = db.query(Campaign).filter(Campaign.id == id).first()
+    if not campaign:
+        raise AppError(status_code=404, code="NOT_FOUND", message="Không tìm thấy đợt đánh giá.")
+    _verify_bcs_class(user, class_ids, campaign.class_id)
+    open_campaign(db, campaign, user.id, datetime.now(timezone.utc))
+    db.commit()
+    return OpenCampaignResponse(id=campaign.id, status=campaign.status)
 
 
 @router.get("/campaigns/active", response_model=CampaignSchema)

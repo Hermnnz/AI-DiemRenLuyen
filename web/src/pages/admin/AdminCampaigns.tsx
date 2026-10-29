@@ -198,6 +198,7 @@ export const AdminCampaigns: React.FC = () => {
   }, []);
 
   const isDraft = hasCampaign && campaign.status === 'DRAFT';
+  const canEdit = hasCampaign && ['DRAFT', 'SCHEDULED', 'OPEN', 'REVIEW'].includes(campaign.status);
 
   // Criteria handlers
   const handleAddCriterion = () => {
@@ -281,8 +282,10 @@ export const AdminCampaigns: React.FC = () => {
       setSuccessMsg(null);
 
       const payload = {
+        class_id: campaign.class_id,
         title: title.trim(),
         term: term.trim(),
+        template_code: campaign.template_code,
         term_start_on: termStartOn || null,
         term_end_on: termEndOn || null,
         open_at: new Date(openAt).toISOString(),
@@ -293,13 +296,18 @@ export const AdminCampaigns: React.FC = () => {
         max_info_rounds: maxInfoRounds,
         max_proof_rounds: maxProofRounds,
         criteria: criteria.map((c, idx) => ({
-          id: c.id,
-          campaign_id: campaign.id,
+          id: c.id.startsWith('crit-new-') ? undefined : c.id,
           code: c.code.trim(),
+          section_code: c.section_code ?? null,
+          section_title: c.section_title ?? null,
+          section_max_score: c.section_max_score ?? null,
           title: c.title.trim(),
           description: c.description ? c.description.trim() : null,
           max_score: parseFloat(c.max_score).toFixed(2),
           requires_evidence: c.requires_evidence,
+          evidence_notes: c.evidence_notes ?? null,
+          allowed_input_roles: c.allowed_input_roles ?? null,
+          rule_config: c.rule_config ?? null,
           sort_order: idx + 1,
         })),
       };
@@ -308,6 +316,7 @@ export const AdminCampaigns: React.FC = () => {
         staffStore.updateCampaign({
           ...campaign,
           ...payload,
+          criteria: criteria.map((c, idx) => ({ ...c, sort_order: idx + 1 })),
         });
       } else {
         await api.put(`/admin/campaigns/${campaign.id}`, payload);
@@ -483,7 +492,7 @@ export const AdminCampaigns: React.FC = () => {
             Quản trị Cấu hình Đợt Đánh giá
           </h2>
           <p style={{ color: '#64748b', fontSize: '0.875rem' }}>
-            Khởi tạo đợt theo mẫu quy tắc, nhập điểm GPA học kỳ, khóa và mở đợt cho sinh viên
+            Khởi tạo, mở và cập nhật đợt đánh giá; mọi thay đổi tiêu chí đều được ghi lịch sử
           </p>
         </div>
 
@@ -518,9 +527,9 @@ export const AdminCampaigns: React.FC = () => {
             >
               <Send size={15} /> Lên lịch / Mở đợt
             </button>
-          ) : hasCampaign ? (
+          ) : hasCampaign && !canEdit ? (
             <div className="badge badge-neutral" style={{ fontSize: '0.85rem', padding: '0.4rem 0.8rem', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
-              <Lock size={14} /> Tiêu chí & Cấu hình đã khóa
+              <Lock size={14} /> Đợt đã công bố hoặc kết thúc
             </div>
           ) : null}
         </div>
@@ -646,7 +655,7 @@ export const AdminCampaigns: React.FC = () => {
             </p>
           </div>
 
-          {isDraft && !isEditing && (
+          {canEdit && !isEditing && (
             <button
               type="button"
               onClick={() => setIsEditing(true)}
@@ -658,12 +667,12 @@ export const AdminCampaigns: React.FC = () => {
           )}
         </div>
 
-        {/* Locked warning notice if not DRAFT */}
-        {!isDraft && (
+        {/* Active edits require BCS to review affected proposed cases again. */}
+        {canEdit && campaign.status !== 'DRAFT' && (
           <div
             style={{
-              backgroundColor: '#f8fafc',
-              border: '1px solid #e2e8f0',
+              backgroundColor: '#fffbeb',
+              border: '1px solid #fde68a',
               borderRadius: '6px',
               padding: '0.75rem 1rem',
               fontSize: '0.825rem',
@@ -674,9 +683,9 @@ export const AdminCampaigns: React.FC = () => {
               gap: '0.5rem',
             }}
           >
-            <Lock size={16} color="#64748b" />
+            <AlertTriangle size={16} color="#b45309" />
             <span>
-              Đợt đánh giá đã ở trạng thái <strong>{campaign.status}</strong>. Theo quy tắc nghiệp vụ V1, toàn bộ tiêu chí, thời hạn và trần lượt bổ sung đã được khóa bất biến nhằm đảm bảo công bằng cho sinh viên.
+              Admin được sửa đợt đang {campaign.status}. Nếu sửa tiêu chí, hồ sơ đã có điểm dự kiến sẽ quay lại BCS kiểm tra. Không thể xóa tiêu chí đã có điểm hoặc minh chứng.
             </span>
           </div>
         )}
@@ -695,7 +704,7 @@ export const AdminCampaigns: React.FC = () => {
             <label style={{ display: 'block', fontSize: '0.825rem', fontWeight: 600, color: '#475569', marginBottom: '0.3rem' }}>
               Thời gian mở nộp hồ sơ (open_at):
             </label>
-            {isDraft && isEditing ? (
+            {canEdit && isEditing ? (
               <input
                 type="datetime-local"
                 value={openAt}
@@ -712,7 +721,7 @@ export const AdminCampaigns: React.FC = () => {
             <label style={{ display: 'block', fontSize: '0.825rem', fontWeight: 600, color: '#475569', marginBottom: '0.3rem' }}>
               Hạn nộp hồ sơ (submission_deadline_at):
             </label>
-            {isDraft && isEditing ? (
+            {canEdit && isEditing ? (
               <input
                 type="datetime-local"
                 value={deadlineAt}
@@ -728,7 +737,7 @@ export const AdminCampaigns: React.FC = () => {
             <label style={{ display: 'block', fontSize: '0.825rem', fontWeight: 600, color: '#475569', marginBottom: '0.3rem' }}>
               Ngày bắt đầu học kỳ (để đối chiếu minh chứng):
             </label>
-            {isDraft && isEditing ? (
+            {canEdit && isEditing ? (
               <input type="date" value={termStartOn} onChange={(e) => setTermStartOn(e.target.value)}
                 style={{ width: '100%', padding: '0.45rem', borderRadius: '4px', border: '1px solid #cbd5e1' }} />
             ) : <span>{campaign.term_start_on || 'Chưa cấu hình'}</span>}
@@ -737,7 +746,7 @@ export const AdminCampaigns: React.FC = () => {
             <label style={{ display: 'block', fontSize: '0.825rem', fontWeight: 600, color: '#475569', marginBottom: '0.3rem' }}>
               Ngày kết thúc học kỳ:
             </label>
-            {isDraft && isEditing ? (
+            {canEdit && isEditing ? (
               <input type="date" value={termEndOn} onChange={(e) => setTermEndOn(e.target.value)}
                 style={{ width: '100%', padding: '0.45rem', borderRadius: '4px', border: '1px solid #cbd5e1' }} />
             ) : <span>{campaign.term_end_on || 'Chưa cấu hình'}</span>}
@@ -748,7 +757,7 @@ export const AdminCampaigns: React.FC = () => {
             <label style={{ display: 'block', fontSize: '0.825rem', fontWeight: 600, color: '#475569', marginBottom: '0.3rem' }}>
               Trần lượt bổ sung (max rounds):
             </label>
-            {isDraft && isEditing ? (
+            {canEdit && isEditing ? (
               <div style={{ display: 'flex', gap: '0.5rem' }}>
                 <input
                   type="number"
@@ -779,7 +788,7 @@ export const AdminCampaigns: React.FC = () => {
             <label style={{ display: 'block', fontSize: '0.825rem', fontWeight: 600, color: '#475569', marginBottom: '0.3rem' }}>
               Thời hạn khiếu nại & Nhắc nhở:
             </label>
-            {isDraft && isEditing ? (
+            {canEdit && isEditing ? (
               <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', fontSize: '0.825rem' }}>
                 <input
                   type="number"
@@ -812,7 +821,7 @@ export const AdminCampaigns: React.FC = () => {
             <h4 style={{ fontSize: '1rem', fontWeight: 700, color: '#0f172a' }}>
               Bộ Tiêu chí Đánh giá ({criteria.length} tiêu chí)
             </h4>
-            {isDraft && (
+            {canEdit && isEditing && (
               <button
                 type="button"
                 onClick={handleAddCriterion}
@@ -843,7 +852,7 @@ export const AdminCampaigns: React.FC = () => {
                     <span style={{ fontWeight: 700, fontSize: '0.9rem', color: '#1e40af' }}>
                       #{cr.sort_order}
                     </span>
-                    {isDraft && isEditing ? (
+                    {canEdit && isEditing ? (
                       <input
                         type="text"
                         value={cr.code}
@@ -855,7 +864,7 @@ export const AdminCampaigns: React.FC = () => {
                       <strong style={{ fontSize: '0.95rem' }}>[{cr.code}]</strong>
                     )}
 
-                    {isDraft && isEditing ? (
+                    {canEdit && isEditing ? (
                       <input
                         type="text"
                         value={cr.title}
@@ -877,7 +886,7 @@ export const AdminCampaigns: React.FC = () => {
                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.85rem' }}>
                       <span style={{ color: '#64748b' }}>Tối đa:</span>
-                      {isDraft && isEditing ? (
+                      {canEdit && isEditing ? (
                         <input
                           type="text"
                           value={cr.max_score}
@@ -889,17 +898,17 @@ export const AdminCampaigns: React.FC = () => {
                       )}
                     </div>
 
-                    <label style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.8rem', cursor: isDraft && isEditing ? 'pointer' : 'default' }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.8rem', cursor: canEdit && isEditing ? 'pointer' : 'default' }}>
                       <input
                         type="checkbox"
-                        disabled={!isDraft || !isEditing}
+                        disabled={!canEdit || !isEditing}
                         checked={cr.requires_evidence}
                         onChange={(e) => handleUpdateCriterion(idx, { requires_evidence: e.target.checked })}
                       />
                       <span>Cần minh chứng</span>
                     </label>
 
-                    {isDraft && isEditing && (
+                    {canEdit && isEditing && (
                       <button
                         type="button"
                         onClick={() => handleRemoveCriterion(idx)}
@@ -912,7 +921,7 @@ export const AdminCampaigns: React.FC = () => {
                   </div>
                 </div>
 
-                {isDraft && isEditing ? (
+                {canEdit && isEditing ? (
                   <input
                     type="text"
                     value={cr.description || ''}
@@ -933,7 +942,7 @@ export const AdminCampaigns: React.FC = () => {
         </div>
 
         {/* Save Bar if Editing */}
-        {isDraft && isEditing && (
+        {canEdit && isEditing && (
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', marginTop: '1.25rem', borderTop: '1px solid #f1f5f9', paddingTop: '1rem' }}>
             <button
               type="button"
@@ -1238,8 +1247,9 @@ export const AdminCampaigns: React.FC = () => {
       <ConfirmDialog
         isOpen={showOpenConfirm}
         title="Xác nhận Lên lịch / Mở đợt đánh giá"
-        message="Hành động này sẽ khóa vĩnh viễn cấu hình tiêu chí và thời hạn của đợt. Nếu thời gian open_at đã tới, đợt sẽ mở ngay và tạo hồ sơ cho tất cả sinh viên trong lớp. Bạn có chắc chắn muốn tiếp tục?"
+        message="Nếu đã tới thời gian mở, hệ thống sẽ tạo hồ sơ cho sinh viên trong lớp. Admin vẫn có thể cập nhật cấu hình sau khi mở; thay đổi tiêu chí sẽ yêu cầu BCS kiểm tra lại điểm dự kiến."
         confirmLabel="Tiến hành Lên lịch/Mở"
+        isLoading={submitting}
         onConfirm={handleOpenCampaign}
         onCancel={() => setShowOpenConfirm(false)}
       />

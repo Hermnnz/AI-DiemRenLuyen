@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { StatusBadge } from '../../components/StatusBadge';
+import { ConfirmDialog } from '../../components/ConfirmDialog';
 import { Deadline } from '../../components/Deadline';
 import { api } from '../../api/client';
 import { BcsCampaignOverview, BcsCaseListItem, Campaign } from '../../api/types';
@@ -26,6 +27,10 @@ export const BcsDashboard: React.FC = () => {
   const [priorityError, setPriorityError] = useState<string | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
+  const [showOpenConfirm, setShowOpenConfirm] = useState(false);
+  const [opening, setOpening] = useState(false);
+  const [actionMessage, setActionMessage] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   const loadData = async () => {
     setLoading(true);
@@ -78,6 +83,28 @@ export const BcsDashboard: React.FC = () => {
     loadData();
   }, []);
 
+  const handleOpenCampaign = async () => {
+    if (!campaign || opening) return;
+    setOpening(true);
+    setActionError(null);
+    try {
+      const result = isDemoMode
+        ? staffStore.openCampaign()
+        : await api.post<{ id: string; status: string }>(`/bcs/campaigns/${campaign.id}/open`);
+      setShowOpenConfirm(false);
+      await loadData();
+      setActionMessage(result.status === 'SCHEDULED'
+        ? 'Đã lên lịch mở đợt. Hệ thống sẽ mở khi tới thời gian đã đặt.'
+        : 'Đã mở đợt. Sinh viên trong lớp có thể bắt đầu tự chấm.');
+    } catch (err: unknown) {
+      const errorObj = err as { error?: { message?: string }; message?: string };
+      setActionError(errorObj?.error?.message || errorObj?.message || 'Không mở được đợt. Hãy tải lại và thử lại.');
+      setShowOpenConfirm(false);
+    } finally {
+      setOpening(false);
+    }
+  };
+
   if (loading && !campaign && !overview) {
     return (
       <div className="card" style={{ padding: '2.5rem', textAlign: 'center' }}>
@@ -110,6 +137,8 @@ export const BcsDashboard: React.FC = () => {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+      {actionError && <div role="alert" className="card" style={{ color: '#991b1b', borderColor: '#fecaca' }}>{actionError}</div>}
+      {actionMessage && <div role="status" className="card" style={{ color: '#065f46', borderColor: '#a7f3d0' }}>{actionMessage}</div>}
       {/* 1. Header & Campaign Status */}
       <div
         style={{
@@ -133,12 +162,27 @@ export const BcsDashboard: React.FC = () => {
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+          {(campaign.status === 'DRAFT' || (campaign.status === 'SCHEDULED' && new Date(campaign.open_at).getTime() <= Date.now())) && (
+            <button type="button" className="btn btn-primary" disabled={opening} onClick={() => setShowOpenConfirm(true)}>
+              {opening ? 'Đang mở đợt...' : campaign.status === 'DRAFT' ? 'Lên lịch / Mở đợt' : 'Mở đợt ngay'}
+            </button>
+          )}
           <div style={{ textAlign: 'right', fontSize: '0.85rem' }}>
             <div style={{ color: '#64748b' }}>Hạn sinh viên nộp:</div>
             <Deadline isoString={campaign.submission_deadline_at} label="Đóng nộp" />
           </div>
         </div>
       </div>
+
+      <ConfirmDialog
+        isOpen={showOpenConfirm}
+        title="Xác nhận mở đợt đánh giá"
+        message="BCS sẽ mở đợt cho lớp mình. Nếu thời gian mở chưa tới, đợt được lên lịch và hệ thống tự mở đúng hạn. Admin vẫn có thể cập nhật cấu hình sau đó."
+        confirmLabel="Xác nhận mở đợt"
+        isLoading={opening}
+        onConfirm={handleOpenCampaign}
+        onCancel={() => setShowOpenConfirm(false)}
+      />
 
       {/* 2. Stat Cards Grid */}
       <div

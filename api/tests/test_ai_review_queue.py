@@ -3,6 +3,7 @@ from api.app.review.gemini_read import GeminiReadError
 import hashlib
 
 from api.app.models.entities import AiReviewRun, Claim, EvidenceFile
+from api.app.services.auto_evidence_service import select_auto_accepted
 from api.tests.conftest import login_helper
 
 
@@ -210,3 +211,97 @@ def test_transparency_worker_uses_separate_model_and_keeps_bcs_in_control(client
     assert run["steps"][1]["output"]["assessments"][0]["verdict"] == "UNKNOWN"
     assert run["result"]["needs_human_review"] is True
     assert case.status == "BCS_REVIEW"
+
+
+def test_high_confidence_evidence_auto_accepted_and_bcs_override_is_recorded(client, seed_data, db, monkeypatch):
+    from datetime import date
+
+    case = seed_data["cases"][0]
+    case.status = "BCS_REVIEW"
+    claim = db.query(Claim).filter(Claim.case_id == case.id).first()
+    claim.self_score = 1
+    campaign = seed_data["campaign"]
+    campaign.template_code = "49K14_1_V1"
+    campaign.term_start_on = date(2026, 1, 1)
+    campaign.term_end_on = date(2026, 12, 31)
+    data = b"synthetic-evidence"
+    evidence = EvidenceFile(
+        claim_id=claim.id, storage_key="auto-accepted.png", original_name="auto-accepted.png",
+        mime_type="image/png", size_bytes=len(data), sha256=hashlib.sha256(data).hexdigest(),
+        uploaded_by=case.student_id, version_no=1, is_current=True,
+    )
+    db.add(evidence)
+    db.commit()
+
+    facts = [
+        {"kind": kind, "value": value, "page": 1, "source_excerpt": value}
+        for kind, value in [
+            ("recipient", case.student.full_name), ("activity_name", "Hội thảo A"),
+            ("event_date", "2026-10-15"), ("issuer", "Đoàn trường"),
+        ]
+    ]
+
+    async def fake_read(self, evidence_file_id, sha256, mime_type, content):
+        return {"evidence_file_id": evidence_file_id, "sha256": sha256,
+                "readable": True, "unreadable_reason": "", "facts": facts}
+
+    async def fake_assess(self, **kwargs):
+        return {"evidence_file_id": evidence.id, "sha256": evidence.sha256,
+                "criterion_code": kwargs["criterion"]["code"], "rule_clause_id": "49K14_1_V1:TC01",
+                "rule_text": "Demo", "evidence_requirements": "", "verdict": "SUPPORTED",
+                "raw_verdict": "SUPPORTED", "post_processing_reason": None,
+                "confidence": 0.97, "reason": "Bốn dữ kiện phù hợp.", "citations": facts,
+                "visual_signals": [], "authenticity": "UNVERIFIED", "limitations": ["Chưa xác minh nguồn cấp."],
+                "requires_human_review": True, "model": self.model, "prompt_version": "ai-transparency-v1"}
+
+    for key, value in {"AI_READ_ENABLED": True, "AI_TRANSPARENCY_ENABLED": True,
+                       "AI_AUTO_ACCEPT_ENABLED": True, "AI_AUTO_ACCEPT_THRESHOLD": 0.95,
+                       "GEMINI_API_KEY": "test-key", "CRON_SECRET": "test-ai-cron"}.items():
+        monkeypatch.setattr(settings, key, value)
+    monkeypatch.setattr("api.app.services.ai_review_service._load_evidence_bytes", lambda _: data)
+    monkeypatch.setattr("api.app.services.ai_review_service.GeminiReadProvider.read", fake_read)
+    monkeypatch.setattr("api.app.services.ai_review_service.GeminiTransparencyProvider.assess", fake_assess)
+
+    bcs = login_helper(client, "bcs001")
+    path = f"/api/v1/bcs/cases/{case.id}"
+    queued = client.post(path + "/ai-reviews", cookies=bcs["cookies"], headers=bcs["headers"])
+    assert queued.status_code == 202
+    process_path = path + f"/ai-reviews/{queued.json()['id']}/process"
+    other_bcs = login_helper(client, "bcs_other")
+    assert client.post(process_path, cookies=other_bcs["cookies"], headers=other_bcs["headers"]).status_code == 403
+    assert client.post(process_path, cookies=bcs["cookies"], headers=bcs["headers"]).status_code == 200
+    detail = client.get(path, cookies=bcs["cookies"]).json()
+    assert detail["evidence_review_required_ids"] == []
+    assert detail["auto_accepted_evidence"][0]["evidence_file_id"] == evidence.id
+    assert detail["auto_accepted_evidence"][0]["confidence"] == 0.97
+
+    run = db.query(AiReviewRun).filter(AiReviewRun.case_id == case.id).first()
+    assessment = run.result_json["findings"]["transparency"][0]
+    read = run.result_json["findings"]["read"][0]
+    checks = run.result_json["rule_checks"]
+    for change in ({"confidence": 0.94}, {"citations": facts[:-1]},
+                   {"visual_signals": [{"page": 1, "description": "Mờ", "concern": True}]},
+                   {"model": None}):
+        assert select_auto_accepted(db, case, run, [read], [{**assessment, **change}], checks) == []
+    assert select_auto_accepted(db, case, run, [read], [assessment],
+                                {**checks, "term_window": {"status": "NOT_CONFIGURED"}}) == []
+    monkeypatch.setattr(settings, "AI_AUTO_ACCEPT_THRESHOLD", 0.98)
+    assert evidence.id in client.get(path, cookies=bcs["cookies"]).json()["evidence_review_required_ids"]
+    monkeypatch.setattr(settings, "AI_AUTO_ACCEPT_THRESHOLD", 0.95)
+    original_code = claim.criterion.code
+    claim.criterion.code = "8a"
+    assert select_auto_accepted(db, case, run, [read], [assessment], checks) == []
+    claim.criterion.code = original_code
+
+    rejected = client.put(path + f"/evidence/{evidence.id}/decision",
+                          json={"decision": "REJECT_ITEM", "reason": "Tên trên bản gốc không khớp hồ sơ",
+                                "expected_version": case.version},
+                          cookies=bcs["cookies"], headers=bcs["headers"])
+    assert rejected.status_code == 200
+    assert client.get(path + "/ai-reviews/latest", cookies=bcs["cookies"]).json()["run"]["stale"] is False
+    from api.app.models.entities import BcsAiFeedback
+    feedback = db.query(BcsAiFeedback).filter(BcsAiFeedback.evidence_file_id == evidence.id).one()
+    assert feedback.ai_run_id == run.id
+    assert feedback.ai_verdict == "SUPPORTED"
+    assert feedback.bcs_decision == "REJECT_ITEM"
+    assert feedback.discrepancy_status == "NEEDS_REVIEW"

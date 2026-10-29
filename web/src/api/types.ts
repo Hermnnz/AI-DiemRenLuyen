@@ -222,6 +222,7 @@ export interface AiTransparencyAssessment {
   rule_text: string;
   evidence_requirements: string;
   verdict: 'SUPPORTED' | 'FLAGGED' | 'UNKNOWN';
+  confidence?: number | null;
   reason: string;
   citations: Array<{ page: number; source_excerpt: string; kind: string; value: string }>;
   visual_signals: Array<{ page: number; description: string; concern: boolean }>;
@@ -291,7 +292,7 @@ export interface AiReviewRun {
   provider: string | null;
   model: string | null;
   prompt_version: string | null;
-  result: { mode?: string; summary?: string; needs_human_review?: boolean; rule_checks?: RuleCheckResponse; score_suggestions?: ScoreSuggestionResponse } | null;
+  result: { mode?: string; summary?: string; needs_human_review?: boolean; rule_checks?: RuleCheckResponse; score_suggestions?: ScoreSuggestionResponse; auto_accepted_evidence?: Array<{ evidence_file_id: string; confidence: number; threshold: number }> } | null;
   error_code: string | null;
   created_at: string;
   started_at: string | null;
@@ -375,6 +376,7 @@ export interface BcsCaseDetail {
     reviewed_at: string;
   }[];
   evidence_review_required_ids?: string[];
+  auto_accepted_evidence?: Array<{ evidence_file_id: string; sha256: string; version_no: number; criterion_code: string; run_id: string; confidence: number; threshold: number; status: string }>;
   draft_editable?: boolean;
   supplement_requests: SupplementRequest[];
   review_mode: string;

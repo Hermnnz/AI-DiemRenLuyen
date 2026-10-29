@@ -533,6 +533,7 @@ class BcsCaseDetail(BaseModel):
     claims: List[BcsCaseClaimItem]
     evidence_decisions: List[BcsEvidenceDecisionSchema] = Field(default_factory=list)
     evidence_review_required_ids: List[str] = Field(default_factory=list)
+    auto_accepted_evidence: List[dict] = Field(default_factory=list)
     draft_editable: bool = False
     supplement_requests: List[SupplementRequestSchema] = Field(default_factory=list)
     review_mode: str = "MANUAL"

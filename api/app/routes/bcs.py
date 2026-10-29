@@ -67,6 +67,7 @@ from api.app.services.workflow_service import complete_bcs_case_review, publish_
 from api.app.services.audit_service import log_audit
 from api.app.services.notification_service import send_notification
 from api.app.services.evidence_decision_service import required_evidence_file_ids
+from api.app.services.auto_evidence_service import current_auto_accepted
 from api.app.services.final_handoff_service import final_score_fingerprint, handoff_status
 from api.app.services.draft_review_service import draft_review_status
 from api.app.services.ai_feedback_service import record_bcs_ai_feedback
@@ -382,6 +383,7 @@ def get_bcs_case_detail(
         claims=claims_list,
         evidence_decisions=[_evidence_decision_schema(item) for item in evidence_decisions],
         evidence_review_required_ids=sorted(required_evidence_file_ids(db, case)),
+        auto_accepted_evidence=current_auto_accepted(db, case),
         draft_editable=draft_editable,
         supplement_requests=supp_schemas,
         review_mode="MANUAL",

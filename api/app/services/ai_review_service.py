@@ -20,9 +20,10 @@ from api.app.services.file_service import get_file_path
 from api.app.services.remote_storage import download_object, remote_storage_enabled
 from api.app.services.rule_check_service import RULE_VERSION, evaluate_case_rules
 from api.app.services.score_decision_service import DECISION_VERSION, evaluate_score_suggestions
+from api.app.services.auto_evidence_service import select_auto_accepted
 
 
-PIPELINE_VERSION = "gemini-read-transparency-decision-v1"
+PIPELINE_VERSION = "gemini-read-transparency-decision-v2"
 
 
 class StaleReview(Exception):
@@ -90,9 +91,11 @@ def enqueue_ai_review(db: Session, case: Case, requested_by: str) -> AiReviewRun
         raise AppError(status_code=409, code="INVALID_STATE", message="Chỉ phân tích AI khi hồ sơ đang chờ Ban cán sự xem xét.")
     rubric_version, evidence_fingerprint, snapshot = build_case_snapshot(db, case)
     idempotency_key = _digest([case.id, case.version, rubric_version, evidence_fingerprint,
-                               PIPELINE_VERSION, RULE_VERSION, DECISION_VERSION, settings.GEMINI_MODEL,
+                               PIPELINE_VERSION, RULE_VERSION, DECISION_VERSION,
+                               PROMPT_VERSION, TRANSPARENCY_PROMPT_VERSION, settings.GEMINI_MODEL,
                                settings.GEMINI_TRANSPARENCY_MODEL,
-                               settings.AI_READ_ENABLED, settings.AI_TRANSPARENCY_ENABLED])
+                               settings.AI_READ_ENABLED, settings.AI_TRANSPARENCY_ENABLED,
+                               settings.AI_AUTO_ACCEPT_ENABLED, settings.AI_AUTO_ACCEPT_THRESHOLD])
     existing = db.query(AiReviewRun).filter(AiReviewRun.idempotency_key == idempotency_key).first()
     if existing:
         return existing
@@ -132,13 +135,23 @@ def enqueue_ai_review(db: Session, case: Case, requested_by: str) -> AiReviewRun
 
 def is_stale(db: Session, run: AiReviewRun) -> bool:
     case = db.query(Case).filter(Case.id == run.case_id).first()
-    if not case or case.version != run.case_version:
+    if not case:
         return True
     rubric_version, evidence_fingerprint, snapshot = build_case_snapshot(db, case)
+    if run.status in {"COMPLETED", "NEEDS_HUMAN"}:
+        # A BCS score/evidence decision increments the case version without
+        # changing the evidence the completed model actually examined.
+        snapshot.pop("case_version", None)
+        original = dict(run.snapshot_json or {})
+        original.pop("case_version", None)
+    else:
+        original = run.snapshot_json
     return (
+        (case.version != run.case_version and run.status not in {"COMPLETED", "NEEDS_HUMAN"})
+        or
         rubric_version != run.rubric_version
         or evidence_fingerprint != run.evidence_fingerprint
-        or snapshot != run.snapshot_json
+        or snapshot != original
     )
 
 
@@ -301,13 +314,16 @@ async def _run_transparency_step(db: Session, run: AiReviewRun, read_results: li
     return results
 
 
-async def run_ai_tick(db: Session, limit: int = 1) -> dict:
+async def run_ai_tick(db: Session, limit: int = 1, target_run_id: str | None = None) -> dict:
     """Process a bounded queue batch; model I/O never holds a DB transaction."""
     processed = stale = needs_human = failed = 0
     for _ in range(limit):
         now = datetime.utcnow()
+        query = db.query(AiReviewRun)
+        if target_run_id:
+            query = query.filter(AiReviewRun.id == target_run_id)
         run = (
-            db.query(AiReviewRun)
+            query
             .filter(or_(
                 and_(AiReviewRun.status == "QUEUED",
                      or_(AiReviewRun.lease_until.is_(None), AiReviewRun.lease_until < now)),
@@ -355,6 +371,7 @@ async def run_ai_tick(db: Session, limit: int = 1) -> dict:
                 run.status = "NEEDS_HUMAN"
                 case = db.query(Case).filter(Case.id == run.case_id).one()
                 rule_checks = evaluate_case_rules(db, case, read_results)
+                auto_accepted = select_auto_accepted(db, case, run, read_results, assessments, rule_checks)
                 run.result_json = {
                     "mode": "AI_READ_AND_TRANSPARENCY" if settings.AI_TRANSPARENCY_ENABLED else "AI_READ_ONLY",
                     "needs_human_review": True,
@@ -362,6 +379,8 @@ async def run_ai_tick(db: Session, limit: int = 1) -> dict:
                                 if settings.AI_TRANSPARENCY_ENABLED else
                                 "Đã trích dữ kiện từ minh chứng. Ban cán sự cần kiểm tra nguồn và tự đối chiếu quy tắc."),
                     "findings": {"read": read_results, "transparency": assessments},
+                    "auto_accepted_evidence": auto_accepted,
+                    "auto_accept_threshold": settings.AI_AUTO_ACCEPT_THRESHOLD,
                     "rule_checks": rule_checks,
                     "score_suggestions": evaluate_score_suggestions(
                         db, case, assessments=assessments, rule_checks=rule_checks,
@@ -373,7 +392,9 @@ async def run_ai_tick(db: Session, limit: int = 1) -> dict:
             run.lease_until = None
             case = db.query(Case).filter(Case.id == run.case_id).one()
             log_audit(db, campaign_id=case.campaign_id, case_id=case.id, action="AI_REVIEW_FINISHED",
-                      after_json={"run_id": run.id, "status": run.status})
+                      after_json={"run_id": run.id, "status": run.status,
+                                  "auto_accepted_evidence_file_ids": [item["evidence_file_id"] for item in
+                                                                       (run.result_json or {}).get("auto_accepted_evidence", [])]})
             db.commit()
         except StaleReview:
             run = db.query(AiReviewRun).filter(AiReviewRun.id == run_id).one()

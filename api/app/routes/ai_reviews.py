@@ -5,7 +5,7 @@ from api.app.database import get_db
 from api.app.models.entities import AiReviewRun, Campaign, Case, User
 from api.app.schemas.ai_reviews import AiLatestResponse, AiReviewResponse, RuleCheckResponse, ScoreSuggestionResponse
 from api.app.schemas.common import AppError
-from api.app.services.ai_review_service import build_case_snapshot, enqueue_ai_review, is_stale, serialize_run
+from api.app.services.ai_review_service import build_case_snapshot, enqueue_ai_review, is_stale, serialize_run, run_ai_tick
 from api.app.services.rule_check_service import evaluate_case_rules
 from api.app.services.score_decision_service import evaluate_score_suggestions
 from api.app.services.auth_service import require_roles, verify_csrf
@@ -68,6 +68,27 @@ def create_ai_review(
     user, class_ids = auth_data
     case = _authorized_case(db, case_id, class_ids)
     run = enqueue_ai_review(db, case, user.id)
+    return serialize_run(db, run)
+
+
+@router.post("/cases/{case_id}/ai-reviews/{run_id}/process", response_model=AiReviewResponse,
+             dependencies=[Depends(verify_csrf)])
+async def process_ai_review(
+    case_id: str,
+    run_id: str,
+    auth_data: tuple[User, list[str]] = Depends(require_roles("BCS")),
+    db: Session = Depends(get_db),
+):
+    _, class_ids = auth_data
+    case = _authorized_case(db, case_id, class_ids)
+    run = db.query(AiReviewRun).filter(AiReviewRun.id == run_id, AiReviewRun.case_id == case.id).first()
+    if not run:
+        raise AppError(status_code=404, code="NOT_FOUND", message="Không tìm thấy lượt phân tích.")
+    if run.status not in {"QUEUED", "RUNNING"}:
+        return serialize_run(db, run)
+    # Target exactly this authorized run; never consume another class's queue item.
+    await run_ai_tick(db, target_run_id=run.id)
+    db.refresh(run)
     return serialize_run(db, run)
 
 

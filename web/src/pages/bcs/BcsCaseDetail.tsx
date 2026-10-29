@@ -42,6 +42,7 @@ export const BcsCaseDetail: React.FC = () => {
   const [evidenceChoices, setEvidenceChoices] = useState<Record<string, string>>({});
   const [evidenceReasons, setEvidenceReasons] = useState<Record<string, string>>({});
   const [savingEvidenceId, setSavingEvidenceId] = useState<string | null>(null);
+  const [reconsiderEvidenceIds, setReconsiderEvidenceIds] = useState<string[]>([]);
   const evidenceRequestLock = useRef(false);
 
   // Modals state
@@ -162,9 +163,31 @@ export const BcsCaseDetail: React.FC = () => {
     try {
       const run = await api.post<AiReviewRun>(`/bcs/cases/${id}/ai-reviews`);
       setAiRun(run);
+      const processed = await api.post<AiReviewRun>(`/bcs/cases/${id}/ai-reviews/${run.id}/process`);
+      setAiRun(processed);
+      await loadCase(true);
     } catch (err: unknown) {
       const message = (err as { error?: { message?: string } })?.error?.message;
-      setAiError(message || 'Không tạo được lượt phân tích.');
+      setAiError(message || 'Chưa xử lý được lượt phân tích. Bạn có thể thử tiếp hoặc BCS xem tệp thủ công.');
+    } finally {
+      aiRequestLock.current = false;
+      setAiBusy(false);
+    }
+  };
+
+  const handleProcessAiReview = async () => {
+    if (!id || !aiRun || aiRequestLock.current) return;
+    aiRequestLock.current = true;
+    setAiBusy(true);
+    setAiError(null);
+    try {
+      const processed = await api.post<AiReviewRun>(`/bcs/cases/${id}/ai-reviews/${aiRun.id}/process`);
+      setAiRun(processed);
+      await loadCase(true);
+    } catch (err: unknown) {
+      const message = (err as { error?: { message?: string } })?.error?.message;
+      setAiError(message || 'Chưa xử lý được lượt phân tích. Hãy thử lại sau hoặc BCS xem tệp thủ công.');
+      await loadAiRun();
     } finally {
       aiRequestLock.current = false;
       setAiBusy(false);
@@ -716,13 +739,18 @@ export const BcsCaseDetail: React.FC = () => {
             <div>
               <h3 style={{ fontSize: '1rem', fontWeight: 700, color: '#0f172a' }}>Hỗ trợ phân tích minh chứng</h3>
               <p style={{ color: '#64748b', fontSize: '0.85rem', marginTop: '0.25rem' }}>
-                AI hỗ trợ đọc và đối chiếu minh chứng; Ban cán sự kiểm tra tệp gốc và chốt kết quả.
+                AI tạm chấp nhận minh chứng đủ căn cứ ở ngưỡng 95%. BCS vẫn chốt điểm và có thể bác kết luận AI với lý do.
               </p>
             </div>
-            {caseData.status === 'BCS_REVIEW' && (!aiRun || aiRun.stale) && (
+            {caseData.status === 'BCS_REVIEW' && (!aiRun || aiRun.stale || !['QUEUED', 'RUNNING'].includes(aiRun.status)) && (
               <button type="button" className="btn btn-secondary" onClick={handleQueueAiReview} disabled={aiBusy} aria-busy={aiBusy}>
                 {aiBusy && <Loader2 size={14} className="ai-spinner" aria-hidden="true" />}
-                <span role={aiBusy ? 'status' : undefined}>{aiBusy ? 'Đang gửi yêu cầu...' : 'Phân tích minh chứng'}</span>
+                <span role={aiBusy ? 'status' : undefined}>{aiBusy ? 'Đang phân tích minh chứng...' : aiRun ? 'Phân tích lại minh chứng bằng AI' : 'Phân tích và xét minh chứng bằng AI'}</span>
+              </button>
+            )}
+            {caseData.status === 'BCS_REVIEW' && aiRun && ['QUEUED', 'RUNNING'].includes(aiRun.status) && (
+              <button type="button" className="btn btn-secondary" onClick={() => void handleProcessAiReview()} disabled={aiBusy} aria-busy={aiBusy}>
+                {aiBusy ? 'Đang phân tích minh chứng...' : 'Tiếp tục xử lý AI'}
               </button>
             )}
           </div>
@@ -739,7 +767,7 @@ export const BcsCaseDetail: React.FC = () => {
               <div style={{ color: '#64748b', marginTop: '0.25rem' }}>Phiên bản hồ sơ: {aiRun.case_version} · Quy tắc: {aiRun.rubric_version}</div>
               {aiRun.error_code && <p role="status" style={{ color: '#b45309', marginTop: '0.35rem' }}>
                 {aiRun.error_code === 'MODEL_RATE_LIMITED'
-                  ? 'Gemini đang giới hạn lượt gọi. Hệ thống sẽ thử lại; Ban cán sự vẫn có thể xem thủ công.'
+                  ? 'Gemini đang giới hạn lượt gọi. Hãy đợi ít nhất 1 phút rồi bấm “Tiếp tục xử lý AI”, hoặc BCS xem tệp thủ công.'
                   : `Chưa đọc được minh chứng (${aiRun.error_code}). Ban cán sự xem thủ công.`}
               </p>}
               <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', marginTop: '0.5rem' }}>
@@ -775,6 +803,7 @@ export const BcsCaseDetail: React.FC = () => {
                       [{assessment.criterion_code}] {evidence?.original_name || assessment.evidence_file_id} · {verdictLabel}
                     </summary>
                     <p style={{ marginTop: '0.45rem' }}>{assessment.reason}</p>
+                    {assessment.confidence != null && <p style={{ color: '#475569' }}>Mức tin cậy AI về nội dung phù hợp: {(assessment.confidence * 100).toFixed(0)}%</p>}
                     <p style={{ color: '#64748b', marginTop: '0.3rem' }}>Điều khoản: {assessment.rule_clause_id} · {assessment.rule_text}</p>
                     {assessment.evidence_requirements && <p style={{ color: '#64748b' }}>Yêu cầu minh chứng: {assessment.evidence_requirements}</p>}
                     {assessment.citations.map((citation, index) => (
@@ -905,14 +934,22 @@ export const BcsCaseDetail: React.FC = () => {
                   {(() => {
                     const saved = caseData.evidence_decisions?.find((item) => item.evidence_file_id === file.id);
                     const required = caseData.evidence_review_required_ids?.includes(file.id) || false;
+                    const autoAccepted = caseData.auto_accepted_evidence?.find((item) => item.evidence_file_id === file.id);
                     const editable = isReviewOpen && !isDemoMode;
                     return (
                       <div style={{ borderTop: '1px solid #e2e8f0', marginTop: '0.5rem', paddingTop: '0.6rem', display: 'grid', gap: '0.45rem' }}>
-                        <span style={{ fontSize: '0.78rem', fontWeight: 600, color: required ? '#9a3412' : '#475569' }}>
+                        {autoAccepted && <div role="status" style={{ padding: '0.5rem', background: saved?.decision === 'REJECT_ITEM' ? '#fef2f2' : '#ecfdf5', border: saved?.decision === 'REJECT_ITEM' ? '1px solid #fecaca' : '1px solid #a7f3d0', borderRadius: '0.4rem', color: saved?.decision === 'REJECT_ITEM' ? '#991b1b' : '#065f46', fontSize: '0.78rem' }}>
+                          {saved?.decision === 'REJECT_ITEM' ? 'BCS đã bác kết luận AI tạm chấp nhận' : 'AI tạm chấp nhận minh chứng'} ({(autoAccepted.confidence * 100).toFixed(0)}%, ngưỡng {(autoAccepted.threshold * 100).toFixed(0)}%). BCS chốt điểm và ghi lý do nếu bác kết luận AI.
+                        </div>}
+                        {(required || saved || !autoAccepted) && <span style={{ fontSize: '0.78rem', fontWeight: 600, color: required ? '#9a3412' : '#475569' }}>
                           {required && isReviewOpen ? 'Cần BCS kết luận' : 'Kết luận của BCS'}: {saved ? ({ ACCEPT: 'Chấp nhận', REQUEST_SUPPLEMENT: 'Đã yêu cầu bổ sung', REJECT_ITEM: 'Từ chối tệp', HOLD: 'Tạm giữ để xác minh' }[saved.decision]) : 'Chưa có'}
-                        </span>
+                        </span>}
                         {saved && <p style={{ fontSize: '0.75rem', color: '#475569', margin: 0 }}>Căn cứ: {saved.reason}</p>}
-                        {editable && (
+                        {editable && autoAccepted && !reconsiderEvidenceIds.includes(file.id) && <button type="button" className="btn btn-secondary" onClick={() => {
+                          setReconsiderEvidenceIds((previous) => [...previous, file.id]);
+                          setEvidenceChoices((previous) => ({ ...previous, [file.id]: 'REJECT_ITEM' }));
+                        }}>{saved ? 'Sửa quyết định BCS' : 'BCS xem xét lại / bác kết luận AI'}</button>}
+                        {editable && (!autoAccepted || reconsiderEvidenceIds.includes(file.id)) && (
                           <>
                             <label htmlFor={`decision-${file.id}`} style={{ fontSize: '0.75rem', fontWeight: 600 }}>Hướng xử lý minh chứng</label>
                             <select id={`decision-${file.id}`} value={evidenceChoices[file.id] || ''}

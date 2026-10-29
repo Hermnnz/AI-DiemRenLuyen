@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field, ValidationError
 from api.app.review.gemini_read import ALLOWED_MIME_TYPES, GeminiReadError, ReadContent
 
 
-PROMPT_VERSION = "ai-transparency-v1"
+PROMPT_VERSION = "ai-transparency-v2"
 
 TRANSPARENCY_PROMPT = (
     "Bạn là trợ lý kiểm tra minh chứng điểm rèn luyện. Chỉ dùng điều khoản do hệ thống cấp "
@@ -26,14 +26,18 @@ TRANSPARENCY_PROMPT = (
     "SUPPORTED chỉ có nghĩa nội dung nhìn thấy phù hợp điều khoản và có dữ kiện trích dẫn; "
     "FLAGGED là có mâu thuẫn/dấu hiệu cụ thể cần người xem; UNKNOWN khi thiếu hoặc mơ hồ. "
     "Chỉ đưa chỉ số của facts được cấp vào fact_indexes, không tự tạo trích dẫn. "
+    "Nếu kết luận SUPPORTED, trích rõ tên người nhận, hoạt động, ngày và đơn vị cấp khi nhìn thấy. "
     "Mỗi visual_signal phải mô tả dấu hiệu cụ thể và số trang; nếu không thấy rõ, để trống. "
-    "Luôn nêu giới hạn xác minh. Trả JSON theo schema."
+    "Luôn nêu giới hạn xác minh. Ghi confidence từ 0 đến 1 cho mức chắc chắn rằng "
+    "nội dung nhìn thấy khớp tiêu chí; đây không phải xác suất giấy tờ là thật. "
+    "Nếu thiếu dữ kiện quan trọng hoặc không thể đối chiếu rõ, giảm confidence. Trả JSON theo schema."
 )
 
 ASSESSMENT_SCHEMA = {
     "type": "object",
     "properties": {
         "verdict": {"type": "string", "enum": ["SUPPORTED", "FLAGGED", "UNKNOWN"]},
+        "confidence": {"type": "number", "minimum": 0, "maximum": 1},
         "reason": {"type": "string"},
         "fact_indexes": {"type": "array", "items": {"type": "integer", "minimum": 0}},
         "visual_signals": {"type": "array", "items": {"type": "object", "properties": {
@@ -43,7 +47,7 @@ ASSESSMENT_SCHEMA = {
         }, "required": ["page", "description", "concern"]}},
         "limitations": {"type": "array", "items": {"type": "string"}},
     },
-    "required": ["verdict", "reason", "fact_indexes", "visual_signals", "limitations"],
+    "required": ["verdict", "confidence", "reason", "fact_indexes", "visual_signals", "limitations"],
 }
 
 
@@ -55,6 +59,7 @@ class VisualSignal(BaseModel):
 
 class Assessment(BaseModel):
     verdict: Literal["SUPPORTED", "FLAGGED", "UNKNOWN"]
+    confidence: float | None = Field(default=None, ge=0, le=1)
     reason: str = Field(min_length=1, max_length=1500)
     fact_indexes: list[int] = Field(default_factory=list)
     visual_signals: list[VisualSignal] = Field(default_factory=list)
@@ -166,6 +171,7 @@ class GeminiTransparencyProvider:
             "rule_text": criterion["description"],
             "evidence_requirements": criterion["evidence_notes"],
             "verdict": verdict,
+            "confidence": assessment.confidence,
             "raw_verdict": raw_verdict,
             "post_processing_reason": post_processing_reason,
             "reason": reason,

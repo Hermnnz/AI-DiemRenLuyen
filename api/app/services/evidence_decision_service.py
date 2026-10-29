@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 
 from api.app.models.entities import AiAgentStep, AiReviewRun, BcsEvidenceDecision, Case, Claim, EvidenceFile
 from api.app.services.rule_check_service import evaluate_case_rules
+from api.app.services.auto_evidence_service import current_auto_accepted
 
 
 def required_evidence_file_ids(db: Session, case: Case) -> set[str]:
@@ -18,7 +19,10 @@ def required_evidence_file_ids(db: Session, case: Case) -> set[str]:
     for file in current_files:
         by_criterion.setdefault(file.claim.criterion_id, set()).add(file.id)
 
-    required: set[str] = set()
+    # Every positively claimed file needs either an AI acceptance or a BCS
+    # decision. No AI result, UNKNOWN and FLAGGED all stay in the human lane.
+    required: set[str] = {file.id for file in current_files
+                          if file.claim.self_score is not None and file.claim.self_score > 0}
     for finding in evaluate_case_rules(db, case)["findings"]:
         if finding["level"] not in {"FLAGGED", "UNKNOWN"}:
             continue
@@ -46,6 +50,10 @@ def required_evidence_file_ids(db: Session, case: Case) -> set[str]:
             file = by_id.get(item.get("evidence_file_id"))
             if file and item.get("sha256") == file.sha256:
                 required.add(file.id)
+
+    # AI acceptance replaces the per-file BCS decision only while its exact
+    # rubric, self-score, term and evidence snapshot still match.
+    required.difference_update(item["evidence_file_id"] for item in current_auto_accepted(db, case))
 
     # A pending human decision remains actionable after a proof timeout.
     pending = (

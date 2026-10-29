@@ -20,7 +20,7 @@ def _person_key(value: str) -> str:
 
 def select_auto_accepted(
     db: Session, case: Case, run: AiReviewRun, reads: list[dict],
-    assessments: list[dict], rule_checks: dict,
+    assessments: list[dict], rule_checks: dict, *, require_self_review: bool = True,
 ) -> list[dict]:
     """Accept only exact current files with cited identity, activity, issuer and date."""
     if not (settings.AI_AUTO_ACCEPT_ENABLED and settings.AI_READ_ENABLED
@@ -46,6 +46,8 @@ def select_auto_accepted(
         snapshot = snapshot_files.get(file_id)
         read = reads_by_file.get((file_id, sha))
         confidence = assessment.get("confidence")
+        self_review = assessment.get("self_review") or {}
+        self_confidence = self_review.get("confidence")
         if (not file or not snapshot or not read or not read.get("readable")
                 or file.sha256 != sha or snapshot.get("sha256") != sha
                 or snapshot.get("version_no") != file.version_no
@@ -54,9 +56,19 @@ def select_auto_accepted(
                 or assessment.get("post_processing_reason")
                 or assessment.get("model") is None
                 or isinstance(confidence, bool) or not isinstance(confidence, (int, float))
-                or not threshold <= confidence <= 1
+                or not threshold < confidence <= 1
                 or assessment.get("authenticity") != "UNVERIFIED"
                 or assessment.get("visual_signals")):
+            continue
+        if require_self_review and (
+            self_review.get("status") != "COMPLETED"
+            or self_review.get("confirmed") is not True
+            or isinstance(self_confidence, bool)
+            or not isinstance(self_confidence, (int, float))
+            or not threshold < self_confidence <= 1
+            or self_review.get("issues")
+            or self_review.get("model") is None
+        ):
             continue
         criterion = file.claim.criterion
         claim = file.claim
@@ -96,6 +108,7 @@ def select_auto_accepted(
             "criterion_code": criterion.code,
             "run_id": run.id,
             "confidence": confidence,
+            "self_confidence": self_confidence if require_self_review else None,
             "threshold": threshold,
             "model": assessment["model"],
             "prompt_version": assessment.get("prompt_version"),
@@ -106,14 +119,15 @@ def select_auto_accepted(
 
 def current_auto_accepted(db: Session, case: Case) -> list[dict]:
     """Ignore old decisions after any rubric, self-score, term or file change."""
-    from api.app.services.ai_review_service import build_case_snapshot
+    from api.app.services.ai_review_service import PIPELINE_VERSION, build_case_snapshot
 
     threshold = settings.AI_AUTO_ACCEPT_THRESHOLD
     if not settings.AI_AUTO_ACCEPT_ENABLED or not 0 <= threshold <= 1:
         return []
     run = (db.query(AiReviewRun).filter(AiReviewRun.case_id == case.id)
            .order_by(AiReviewRun.created_at.desc(), AiReviewRun.id.desc()).first())
-    if not run or run.status not in {"COMPLETED", "NEEDS_HUMAN"}:
+    if (not run or run.status not in {"COMPLETED", "NEEDS_HUMAN"}
+            or (run.result_json or {}).get("pipeline_version") != PIPELINE_VERSION):
         return []
     rubric, fingerprint, snapshot = build_case_snapshot(db, case)
     if run.rubric_version != rubric or run.evidence_fingerprint != fingerprint:
@@ -127,4 +141,7 @@ def current_auto_accepted(db: Session, case: Case) -> list[dict]:
             if item.get("run_id") == run.id
             and isinstance(item.get("confidence"), (int, float))
             and not isinstance(item.get("confidence"), bool)
-            and threshold <= item["confidence"] <= 1]
+            and threshold < item["confidence"] <= 1
+            and isinstance(item.get("self_confidence"), (int, float))
+            and not isinstance(item.get("self_confidence"), bool)
+            and threshold < item["self_confidence"] <= 1]

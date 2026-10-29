@@ -223,6 +223,7 @@ export interface AiTransparencyAssessment {
   evidence_requirements: string;
   verdict: 'SUPPORTED' | 'FLAGGED' | 'UNKNOWN';
   confidence?: number | null;
+  self_review?: { status: 'COMPLETED' | 'SKIPPED' | 'FAILED'; confirmed?: boolean; confidence?: number; reason?: string; issues?: string[]; error_code?: string };
   reason: string;
   citations: Array<{ page: number; source_excerpt: string; kind: string; value: string }>;
   visual_signals: Array<{ page: number; description: string; concern: boolean }>;
@@ -292,7 +293,7 @@ export interface AiReviewRun {
   provider: string | null;
   model: string | null;
   prompt_version: string | null;
-  result: { mode?: string; summary?: string; needs_human_review?: boolean; rule_checks?: RuleCheckResponse; score_suggestions?: ScoreSuggestionResponse; auto_accept_threshold?: number; auto_accepted_evidence?: Array<{ evidence_file_id: string; confidence: number; threshold: number }> } | null;
+  result: { mode?: string; summary?: string; needs_human_review?: boolean; rule_checks?: RuleCheckResponse; score_suggestions?: ScoreSuggestionResponse; auto_accept_threshold?: number; pipeline_version?: string; auto_accepted_evidence?: Array<{ evidence_file_id: string; confidence: number; self_confidence: number; threshold: number }> } | null;
   error_code: string | null;
   created_at: string;
   started_at: string | null;
@@ -376,7 +377,7 @@ export interface BcsCaseDetail {
     reviewed_at: string;
   }[];
   evidence_review_required_ids?: string[];
-  auto_accepted_evidence?: Array<{ evidence_file_id: string; sha256: string; version_no: number; criterion_code: string; run_id: string; confidence: number; threshold: number; status: string }>;
+  auto_accepted_evidence?: Array<{ evidence_file_id: string; sha256: string; version_no: number; criterion_code: string; run_id: string; confidence: number; self_confidence: number; threshold: number; status: string }>;
   draft_editable?: boolean;
   supplement_requests: SupplementRequest[];
   review_mode: string;

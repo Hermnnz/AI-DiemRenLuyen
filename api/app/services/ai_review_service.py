@@ -12,7 +12,9 @@ from sqlalchemy.orm import Session
 from api.app.models.entities import AiAgentStep, AiReviewRun, Campaign, Case, Claim, Criterion, EvidenceFile
 from api.app.config import settings
 from api.app.review.gemini_read import GeminiReadError, GeminiReadProvider, PROMPT_VERSION
-from api.app.review.gemini_transparency import GeminiTransparencyProvider, PROMPT_VERSION as TRANSPARENCY_PROMPT_VERSION
+from api.app.review.gemini_transparency import (GeminiTransparencyProvider,
+    PROMPT_VERSION as TRANSPARENCY_PROMPT_VERSION,
+    SELF_REVIEW_PROMPT_VERSION)
 from api.app.review.provider import ManualReviewProvider
 from api.app.schemas.common import AppError, format_datetime
 from api.app.services.audit_service import log_audit
@@ -23,7 +25,7 @@ from api.app.services.score_decision_service import DECISION_VERSION, evaluate_s
 from api.app.services.auto_evidence_service import select_auto_accepted
 
 
-PIPELINE_VERSION = "gemini-read-transparency-decision-v2"
+PIPELINE_VERSION = "gemini-read-transparency-decision-v3"
 
 
 class StaleReview(Exception):
@@ -92,7 +94,8 @@ def enqueue_ai_review(db: Session, case: Case, requested_by: str) -> AiReviewRun
     rubric_version, evidence_fingerprint, snapshot = build_case_snapshot(db, case)
     idempotency_key = _digest([case.id, case.version, rubric_version, evidence_fingerprint,
                                PIPELINE_VERSION, RULE_VERSION, DECISION_VERSION,
-                               PROMPT_VERSION, TRANSPARENCY_PROMPT_VERSION, settings.GEMINI_MODEL,
+                               PROMPT_VERSION, TRANSPARENCY_PROMPT_VERSION,
+                               SELF_REVIEW_PROMPT_VERSION, settings.GEMINI_MODEL,
                                settings.GEMINI_TRANSPARENCY_MODEL,
                                settings.AI_READ_ENABLED, settings.AI_TRANSPARENCY_ENABLED,
                                settings.AI_AUTO_ACCEPT_ENABLED, settings.AI_AUTO_ACCEPT_THRESHOLD])
@@ -136,6 +139,9 @@ def enqueue_ai_review(db: Session, case: Case, requested_by: str) -> AiReviewRun
 def is_stale(db: Session, run: AiReviewRun) -> bool:
     case = db.query(Case).filter(Case.id == run.case_id).first()
     if not case:
+        return True
+    if (run.status in {"COMPLETED", "NEEDS_HUMAN"}
+            and (run.result_json or {}).get("pipeline_version") != PIPELINE_VERSION):
         return True
     rubric_version, evidence_fingerprint, snapshot = build_case_snapshot(db, case)
     if run.status in {"COMPLETED", "NEEDS_HUMAN"}:
@@ -252,12 +258,14 @@ async def _run_transparency_step(db: Session, run: AiReviewRun, read_results: li
     by_id = {item.id: item for item in files}
     reads = {(item["evidence_file_id"], item["sha256"]): item for item in read_results}
     results = list((step.output_json or {}).get("assessments", []))
-    cached = {(item["evidence_file_id"], item.get("sha256")) for item in results if item.get("evidence_file_id")}
+    cached = {(item["evidence_file_id"], item.get("sha256")): item
+              for item in results if item.get("evidence_file_id")}
+    rule_checks = evaluate_case_rules(db, case, read_results)
     provider = GeminiTransparencyProvider(settings.GEMINI_API_KEY, settings.GEMINI_TRANSPARENCY_MODEL)
     step.status = "RUNNING"
     step.started_at = step.started_at or datetime.now(timezone.utc)
     run.model = f"{settings.GEMINI_MODEL} + {settings.GEMINI_TRANSPARENCY_MODEL}"
-    run.prompt_version = f"{PROMPT_VERSION} + {TRANSPARENCY_PROMPT_VERSION}"
+    run.prompt_version = f"{PROMPT_VERSION} + {TRANSPARENCY_PROMPT_VERSION} + {SELF_REVIEW_PROMPT_VERSION}"
     db.commit()
 
     for snapshot_file in expected:
@@ -266,7 +274,8 @@ async def _run_transparency_step(db: Session, run: AiReviewRun, read_results: li
         file = by_id.get(snapshot_file["id"])
         if not file or file.sha256 != snapshot_file["sha256"]:
             raise StaleReview()
-        if (file.id, file.sha256) in cached:
+        existing = cached.get((file.id, file.sha256))
+        if existing and existing.get("self_review"):
             continue
         claim = claims.get(file.claim_id)
         criterion = criteria.get(claim.criterion_id) if claim else None
@@ -275,7 +284,15 @@ async def _run_transparency_step(db: Session, run: AiReviewRun, read_results: li
 
         clause_id = f"{campaign.template_code}:{criterion.code}"
         read = reads.get((file.id, file.sha256))
-        if (campaign.template_code in {None, "LEGACY_DEMO"} or not read or not read.get("readable")
+        context = {
+            "code": criterion.code, "title": criterion.title,
+            "description": criterion.description or "", "evidence_notes": criterion.evidence_notes or "",
+            "rule_config": criterion.rule_config or {}, "clause_id": clause_id,
+        }
+        data = None
+        if existing:
+            result = existing
+        elif (campaign.template_code in {None, "LEGACY_DEMO"} or not read or not read.get("readable")
                 or not (criterion.description or criterion.evidence_notes)):
             result = {
                 "evidence_file_id": file.id, "sha256": file.sha256,
@@ -288,11 +305,6 @@ async def _run_transparency_step(db: Session, run: AiReviewRun, read_results: li
                 "requires_human_review": True, "model": None, "prompt_version": TRANSPARENCY_PROMPT_VERSION,
             }
         else:
-            context = {
-                "code": criterion.code, "title": criterion.title,
-                "description": criterion.description or "", "evidence_notes": criterion.evidence_notes or "",
-                "rule_config": criterion.rule_config or {}, "clause_id": clause_id,
-            }
             file_id, file_sha256, file_mime, storage_key = file.id, file.sha256, file.mime_type, file.storage_key
             db.commit()  # No transaction is held while loading evidence or calling Gemini.
             data = await asyncio.to_thread(_load_evidence_bytes, storage_key)
@@ -303,7 +315,32 @@ async def _run_transparency_step(db: Session, run: AiReviewRun, read_results: li
             )
             if is_stale(db, run):
                 raise StaleReview()
-        results.append(result)
+        if not existing:
+            results.append(result)
+            step.output_json = {"assessments": list(results)}
+            db.commit()  # Preserve the primary result if the second prompt hits a rate limit.
+
+        if select_auto_accepted(db, case, run, read_results, [result], rule_checks,
+                                require_self_review=False):
+            if data is None:
+                db.commit()
+                data = await asyncio.to_thread(_load_evidence_bytes, file.storage_key)
+            try:
+                self_review = await provider.self_review(
+                    evidence_file_id=file.id, sha256=file.sha256, mime_type=file.mime_type,
+                    data=data, read_result=read, criterion=context,
+                    student_name=case.student.full_name, term=campaign.term,
+                    primary_assessment=result,
+                )
+            except GeminiReadError as exc:
+                if exc.retryable:
+                    raise
+                self_review = {"status": "FAILED", "error_code": exc.code}
+            if is_stale(db, run):
+                raise StaleReview()
+            result["self_review"] = self_review
+        else:
+            result["self_review"] = {"status": "SKIPPED", "reason": "PRIMARY_GATE_FAILED"}
         step.output_json = {"assessments": list(results)}
         db.commit()
 
@@ -349,7 +386,8 @@ async def run_ai_tick(db: Session, limit: int = 1, target_run_id: str | None = N
                 manual = ManualReviewProvider().review(run.case_id)
                 run.status = "NEEDS_HUMAN"
                 run.result_json = {**manual.model_dump(), "rule_checks": (run.result_json or {}).get("rule_checks"),
-                                   "auto_accept_threshold": settings.AI_AUTO_ACCEPT_THRESHOLD}
+                                   "auto_accept_threshold": settings.AI_AUTO_ACCEPT_THRESHOLD,
+                                   "pipeline_version": PIPELINE_VERSION}
                 run.result_json["score_suggestions"] = evaluate_score_suggestions(
                     db, db.query(Case).filter(Case.id == run.case_id).one(),
                     rule_checks=run.result_json["rule_checks"], rubric_version=run.rubric_version,
@@ -382,12 +420,14 @@ async def run_ai_tick(db: Session, limit: int = 1, target_run_id: str | None = N
                     "findings": {"read": read_results, "transparency": assessments},
                     "auto_accepted_evidence": auto_accepted,
                     "auto_accept_threshold": settings.AI_AUTO_ACCEPT_THRESHOLD,
+                    "pipeline_version": PIPELINE_VERSION,
                     "rule_checks": rule_checks,
                     "score_suggestions": evaluate_score_suggestions(
                         db, case, assessments=assessments, rule_checks=rule_checks,
                         rubric_version=run.rubric_version, source_run_id=run.id,
                     ),
                 }
+            run.error_code = None
             needs_human += 1
             run.finished_at = datetime.now(timezone.utc)
             run.lease_until = None
@@ -417,7 +457,8 @@ async def run_ai_tick(db: Session, limit: int = 1, target_run_id: str | None = N
             if not retryable:
                 run.result_json = {**ManualReviewProvider().review(run.case_id).model_dump(),
                                    "rule_checks": (run.result_json or {}).get("rule_checks"),
-                                   "auto_accept_threshold": settings.AI_AUTO_ACCEPT_THRESHOLD}
+                                   "auto_accept_threshold": settings.AI_AUTO_ACCEPT_THRESHOLD,
+                                   "pipeline_version": PIPELINE_VERSION}
                 run.result_json["score_suggestions"] = evaluate_score_suggestions(
                     db, db.query(Case).filter(Case.id == run.case_id).one(),
                     rule_checks=run.result_json["rule_checks"], rubric_version=run.rubric_version,

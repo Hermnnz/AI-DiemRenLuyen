@@ -60,6 +60,36 @@ def test_transparency_cites_read_fact_and_does_not_claim_authenticity():
     assert result["requires_human_review"] is True
 
 
+def test_self_review_uses_separate_prompt_and_preserves_file_binding():
+    primary = {"evidence_file_id": "file-1", "sha256": HASH, "criterion_code": "7b", "verdict": "SUPPORTED",
+               "confidence": 0.91, "reason": "Phù hợp", "citations": READ["facts"],
+               "visual_signals": [], "limitations": []}
+
+    def respond(request: httpx.Request) -> httpx.Response:
+        payload = json.loads(request.content)
+        assert "tự kiểm tra lại kết luận" in payload["contents"][0]["parts"][0]["text"]
+        assert payload["generationConfig"]["responseJsonSchema"]["required"] == [
+            "confirmed", "confidence", "reason", "issues"]
+        assert payload["contents"][0]["parts"][1]["inline_data"]["mime_type"] == "image/png"
+        return httpx.Response(200, json={"candidates": [{"content": {"parts": [{"text": json.dumps({
+            "confirmed": True, "confidence": 0.9, "reason": "Đã rà soát lại", "issues": [],
+        })}]}}]})
+
+    async def run():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+            return await GeminiTransparencyProvider("test-key", client=client).self_review(
+                evidence_file_id="file-1", sha256=HASH, mime_type="image/png", data=DATA,
+                read_result=READ, criterion=CRITERION, student_name="Sinh viên A", term="HK1",
+                primary_assessment=primary,
+            )
+
+    result = asyncio.run(run())
+    assert result["status"] == "COMPLETED"
+    assert result["confirmed"] is True
+    assert result["confidence"] == 0.9
+    assert result["prompt_version"] == "ai-transparency-self-review-v1"
+
+
 def test_transparency_downgrades_unsupported_verdict_and_visual_concern():
     no_citation = _assess({"verdict": "SUPPORTED", "reason": "Có vẻ phù hợp.", "fact_indexes": [],
                            "visual_signals": [], "limitations": []})

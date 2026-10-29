@@ -52,7 +52,14 @@ def test_score_draft_waits_for_evidence_and_cadre_review_without_mutating_approv
 
     supported = {"evidence_file_id": file.id, "sha256": file.sha256,
                  "criterion_code": "4b_nckh", "verdict": "SUPPORTED",
+                 "confidence": 0.9,
+                 "self_review": {"status": "COMPLETED", "confirmed": True,
+                                 "confidence": 0.92, "issues": []},
                  "authenticity": "UNVERIFIED", "citations": [{"page": 1, "source_excerpt": "x"}]}
+    weak = evaluate_score_suggestions(db, case, assessments=[{
+        **supported, "self_review": {**supported["self_review"], "confidence": 0.85},
+    }])
+    assert next(item for item in weak["items"] if item["criterion_code"] == "4b_nckh")["status"] == "REVIEW_REQUIRED"
     after = evaluate_score_suggestions(db, case, assessments=[supported])
     items = {item["criterion_code"]: item for item in after["items"]}
     assert items["4b_nckh"]["draft_score"] == "2.00"

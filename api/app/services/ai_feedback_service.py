@@ -16,7 +16,7 @@ from api.app.models.entities import (
     User,
 )
 from api.app.schemas.common import AppError
-from api.app.services.ai_review_service import build_case_snapshot
+from api.app.services.ai_review_service import PIPELINE_VERSION, build_case_snapshot
 from api.app.services.audit_service import log_audit
 
 
@@ -104,8 +104,16 @@ def record_bcs_ai_feedback(
         discrepancy_status = "NO_AI_RESULT"
     else:
         ai_verdict = ai_assessment.get("verdict")
+        dual_gate_run = (ai_run.result_json or {}).get("pipeline_version") == PIPELINE_VERSION
+        auto_accepted = any(
+            item.get("evidence_file_id") == evidence.id and item.get("sha256") == evidence.sha256
+            for item in (ai_run.result_json or {}).get("auto_accepted_evidence", [])
+        ) if dual_gate_run else False
         # REQUEST_SUPPLEMENT and HOLD are non-final; never treat as AI right or wrong
         if bcs_decision in ["REQUEST_SUPPLEMENT", "HOLD"]:
+            discrepancy_status = "NON_FINAL_DECISION"
+        elif dual_gate_run and ai_verdict == "SUPPORTED" and not auto_accepted:
+            # The first prompt supported it, but the two-gate AI made no acceptance decision.
             discrepancy_status = "NON_FINAL_DECISION"
         elif bcs_decision == "ACCEPT":
             if ai_verdict == "SUPPORTED":

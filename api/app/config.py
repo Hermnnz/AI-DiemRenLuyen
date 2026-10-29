@@ -34,7 +34,7 @@ class Settings(BaseSettings):
     GEMINI_TRANSPARENCY_MODEL: str = os.getenv("GEMINI_TRANSPARENCY_MODEL", "gemini-3.6-flash")
     AI_TRANSPARENCY_ENABLED: bool = os.getenv("AI_TRANSPARENCY_ENABLED", "false").lower() == "true"
     AI_AUTO_ACCEPT_ENABLED: bool = os.getenv("AI_AUTO_ACCEPT_ENABLED", "true").lower() == "true"
-    AI_AUTO_ACCEPT_THRESHOLD: float = float(os.getenv("AI_AUTO_ACCEPT_THRESHOLD", "0.95"))
+    AI_AUTO_ACCEPT_THRESHOLD: float = float(os.getenv("AI_AUTO_ACCEPT_THRESHOLD", "0.85"))
     
     # Server & CORS
     API_HOST: str = os.getenv("API_HOST", "0.0.0.0")

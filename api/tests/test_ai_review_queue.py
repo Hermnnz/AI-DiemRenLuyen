@@ -245,22 +245,38 @@ def test_high_confidence_evidence_auto_accepted_and_bcs_override_is_recorded(cli
         return {"evidence_file_id": evidence_file_id, "sha256": sha256,
                 "readable": True, "unreadable_reason": "", "facts": facts}
 
+    assess_calls = 0
+    self_review_calls = 0
+
     async def fake_assess(self, **kwargs):
+        nonlocal assess_calls
+        assess_calls += 1
         return {"evidence_file_id": evidence.id, "sha256": evidence.sha256,
                 "criterion_code": kwargs["criterion"]["code"], "rule_clause_id": "49K14_1_V1:TC01",
                 "rule_text": "Demo", "evidence_requirements": "", "verdict": "SUPPORTED",
                 "raw_verdict": "SUPPORTED", "post_processing_reason": None,
-                "confidence": 0.97, "reason": "Bốn dữ kiện phù hợp.", "citations": facts,
+                "confidence": 0.91, "reason": "Bốn dữ kiện phù hợp.", "citations": facts,
                 "visual_signals": [], "authenticity": "UNVERIFIED", "limitations": ["Chưa xác minh nguồn cấp."],
-                "requires_human_review": True, "model": self.model, "prompt_version": "ai-transparency-v1"}
+                "requires_human_review": True, "model": self.model, "prompt_version": "ai-transparency-v2"}
+
+    async def fake_self_review(self, **kwargs):
+        nonlocal self_review_calls
+        self_review_calls += 1
+        assert kwargs["primary_assessment"]["confidence"] == 0.91
+        if self_review_calls == 1:
+            raise GeminiReadError("MODEL_RATE_LIMITED", retryable=True)
+        return {"status": "COMPLETED", "confirmed": True, "confidence": 0.93,
+                "reason": "Đã rà soát bốn dữ kiện.", "issues": [],
+                "model": self.model, "prompt_version": "ai-transparency-self-review-v1"}
 
     for key, value in {"AI_READ_ENABLED": True, "AI_TRANSPARENCY_ENABLED": True,
-                       "AI_AUTO_ACCEPT_ENABLED": True, "AI_AUTO_ACCEPT_THRESHOLD": 0.95,
+                       "AI_AUTO_ACCEPT_ENABLED": True, "AI_AUTO_ACCEPT_THRESHOLD": 0.85,
                        "GEMINI_API_KEY": "test-key", "CRON_SECRET": "test-ai-cron"}.items():
         monkeypatch.setattr(settings, key, value)
     monkeypatch.setattr("api.app.services.ai_review_service._load_evidence_bytes", lambda _: data)
     monkeypatch.setattr("api.app.services.ai_review_service.GeminiReadProvider.read", fake_read)
     monkeypatch.setattr("api.app.services.ai_review_service.GeminiTransparencyProvider.assess", fake_assess)
+    monkeypatch.setattr("api.app.services.ai_review_service.GeminiTransparencyProvider.self_review", fake_self_review)
 
     bcs = login_helper(client, "bcs001")
     path = f"/api/v1/bcs/cases/{case.id}"
@@ -269,25 +285,38 @@ def test_high_confidence_evidence_auto_accepted_and_bcs_override_is_recorded(cli
     process_path = path + f"/ai-reviews/{queued.json()['id']}/process"
     other_bcs = login_helper(client, "bcs_other")
     assert client.post(process_path, cookies=other_bcs["cookies"], headers=other_bcs["headers"]).status_code == 403
+    first_processing = client.post(process_path, cookies=bcs["cookies"], headers=bcs["headers"])
+    assert first_processing.status_code == 200
+    assert first_processing.json()["status"] == "QUEUED"
+    run = db.query(AiReviewRun).filter(AiReviewRun.case_id == case.id).one()
+    assert run.steps[1].output_json["assessments"][0]["confidence"] == 0.91
+    from datetime import datetime, timedelta
+    run.lease_until = datetime.utcnow() - timedelta(seconds=1)
+    db.commit()
     assert client.post(process_path, cookies=bcs["cookies"], headers=bcs["headers"]).status_code == 200
+    assert assess_calls == 1
+    assert self_review_calls == 2
     detail = client.get(path, cookies=bcs["cookies"]).json()
     assert detail["evidence_review_required_ids"] == []
     assert detail["auto_accepted_evidence"][0]["evidence_file_id"] == evidence.id
-    assert detail["auto_accepted_evidence"][0]["confidence"] == 0.97
+    assert detail["auto_accepted_evidence"][0]["confidence"] == 0.91
+    assert detail["auto_accepted_evidence"][0]["self_confidence"] == 0.93
 
     run = db.query(AiReviewRun).filter(AiReviewRun.case_id == case.id).first()
     assessment = run.result_json["findings"]["transparency"][0]
     read = run.result_json["findings"]["read"][0]
     checks = run.result_json["rule_checks"]
-    for change in ({"confidence": 0.94}, {"citations": facts[:-1]},
+    for change in ({"confidence": 0.85}, {"citations": facts[:-1]},
                    {"visual_signals": [{"page": 1, "description": "Mờ", "concern": True}]},
-                   {"model": None}):
+                   {"model": None}, {"self_review": {**assessment["self_review"], "confidence": 0.85}},
+                   {"self_review": {**assessment["self_review"], "confirmed": False}},
+                   {"self_review": {**assessment["self_review"], "issues": ["Tên không khớp"]}}):
         assert select_auto_accepted(db, case, run, [read], [{**assessment, **change}], checks) == []
     assert select_auto_accepted(db, case, run, [read], [assessment],
                                 {**checks, "term_window": {"status": "NOT_CONFIGURED"}}) == []
-    monkeypatch.setattr(settings, "AI_AUTO_ACCEPT_THRESHOLD", 0.98)
+    monkeypatch.setattr(settings, "AI_AUTO_ACCEPT_THRESHOLD", 0.94)
     assert evidence.id in client.get(path, cookies=bcs["cookies"]).json()["evidence_review_required_ids"]
-    monkeypatch.setattr(settings, "AI_AUTO_ACCEPT_THRESHOLD", 0.95)
+    monkeypatch.setattr(settings, "AI_AUTO_ACCEPT_THRESHOLD", 0.85)
     original_code = claim.criterion.code
     claim.criterion.code = "8a"
     assert select_auto_accepted(db, case, run, [read], [assessment], checks) == []

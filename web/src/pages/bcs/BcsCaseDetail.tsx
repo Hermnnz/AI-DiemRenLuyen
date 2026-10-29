@@ -739,7 +739,7 @@ export const BcsCaseDetail: React.FC = () => {
             <div>
               <h3 style={{ fontSize: '1rem', fontWeight: 700, color: '#0f172a' }}>Hỗ trợ phân tích minh chứng</h3>
               <p style={{ color: '#64748b', fontSize: '0.85rem', marginTop: '0.25rem' }}>
-                AI tạm chấp nhận minh chứng đủ căn cứ ở ngưỡng 95%. BCS vẫn chốt điểm và có thể bác kết luận AI với lý do.
+                AI đối chiếu minh chứng rồi tự rà soát bằng prompt riêng. Cả hai mức tin cậy phải trên 85%; BCS vẫn chốt điểm và có thể bác kết luận AI với lý do.
               </p>
             </div>
             {caseData.status === 'BCS_REVIEW' && (!aiRun || aiRun.stale || (aiRun.result?.auto_accept_threshold === undefined && !['QUEUED', 'RUNNING'].includes(aiRun.status))) && (
@@ -796,14 +796,23 @@ export const BcsCaseDetail: React.FC = () => {
               })}
               {aiRun.steps.find((step) => step.kind === 'AI_TRANSPARENCY')?.output?.assessments?.map((assessment) => {
                 const evidence = allEvidenceFiles.find((file) => file.id === assessment.evidence_file_id);
-                const verdictLabel = { SUPPORTED: 'Nội dung phù hợp', FLAGGED: 'Cần kiểm tra', UNKNOWN: 'Chưa đủ căn cứ' }[assessment.verdict];
+                const autoAccepted = caseData.auto_accepted_evidence?.some((item) => item.evidence_file_id === assessment.evidence_file_id);
+                const verdictLabel = assessment.verdict === 'SUPPORTED'
+                  ? autoAccepted ? 'AI tạm chấp nhận' : 'Luồng 1 phù hợp; BCS cần xem'
+                  : { FLAGGED: 'Cần kiểm tra', UNKNOWN: 'Chưa đủ căn cứ' }[assessment.verdict];
                 return (
                   <details key={`assessment-${assessment.evidence_file_id}`} style={{ marginTop: '0.6rem', borderTop: '1px solid #e2e8f0', paddingTop: '0.5rem' }}>
                     <summary style={{ cursor: 'pointer', fontWeight: 600 }}>
                       [{assessment.criterion_code}] {evidence?.original_name || assessment.evidence_file_id} · {verdictLabel}
                     </summary>
                     <p style={{ marginTop: '0.45rem' }}>{assessment.reason}</p>
-                    {assessment.confidence != null && <p style={{ color: '#475569' }}>Mức tin cậy AI về nội dung phù hợp: {(assessment.confidence * 100).toFixed(0)}%</p>}
+                    {assessment.confidence != null && <p style={{ color: '#475569' }}>Luồng 1 · Mức tin cậy nội dung phù hợp: {(assessment.confidence * 100).toFixed(0)}%</p>}
+                    {assessment.self_review?.status === 'COMPLETED' && <div style={{ padding: '0.5rem', background: assessment.self_review.confirmed && (assessment.self_review.confidence ?? 0) > 0.85 ? '#ecfdf5' : '#fff7ed', borderRadius: '0.4rem' }}>
+                      <strong>Luồng 2 · AI tự rà soát:</strong> {assessment.self_review.confirmed ? 'Xác nhận' : 'Không xác nhận'} · mức tin cậy {((assessment.self_review.confidence ?? 0) * 100).toFixed(0)}%.
+                      {assessment.self_review.reason && <p>{assessment.self_review.reason}</p>}
+                      {assessment.self_review.issues?.map((issue, index) => <p key={`issue-${index}`}>Vấn đề: {issue}</p>)}
+                    </div>}
+                    {assessment.self_review?.status === 'FAILED' && <p style={{ color: '#b45309' }}>Luồng tự rà soát chưa chạy được ({assessment.self_review.error_code}); BCS cần xem minh chứng.</p>}
                     <p style={{ color: '#64748b', marginTop: '0.3rem' }}>Điều khoản: {assessment.rule_clause_id} · {assessment.rule_text}</p>
                     {assessment.evidence_requirements && <p style={{ color: '#64748b' }}>Yêu cầu minh chứng: {assessment.evidence_requirements}</p>}
                     {assessment.citations.map((citation, index) => (
@@ -939,7 +948,7 @@ export const BcsCaseDetail: React.FC = () => {
                     return (
                       <div style={{ borderTop: '1px solid #e2e8f0', marginTop: '0.5rem', paddingTop: '0.6rem', display: 'grid', gap: '0.45rem' }}>
                         {autoAccepted && <div role="status" style={{ padding: '0.5rem', background: saved?.decision === 'REJECT_ITEM' ? '#fef2f2' : '#ecfdf5', border: saved?.decision === 'REJECT_ITEM' ? '1px solid #fecaca' : '1px solid #a7f3d0', borderRadius: '0.4rem', color: saved?.decision === 'REJECT_ITEM' ? '#991b1b' : '#065f46', fontSize: '0.78rem' }}>
-                          {saved?.decision === 'REJECT_ITEM' ? 'BCS đã bác kết luận AI tạm chấp nhận' : 'AI tạm chấp nhận minh chứng'} ({(autoAccepted.confidence * 100).toFixed(0)}%, ngưỡng {(autoAccepted.threshold * 100).toFixed(0)}%). BCS chốt điểm và ghi lý do nếu bác kết luận AI.
+                          {saved?.decision === 'REJECT_ITEM' ? 'BCS đã bác kết luận AI tạm chấp nhận' : 'AI tạm chấp nhận minh chứng'} (đối chiếu {(autoAccepted.confidence * 100).toFixed(0)}%, tự rà soát {(autoAccepted.self_confidence * 100).toFixed(0)}%; cả hai phải trên {(autoAccepted.threshold * 100).toFixed(0)}%). BCS chốt điểm và ghi lý do nếu bác kết luận AI.
                         </div>}
                         {(required || saved || !autoAccepted) && <span style={{ fontSize: '0.78rem', fontWeight: 600, color: required ? '#9a3412' : '#475569' }}>
                           {required && isReviewOpen ? 'Cần BCS kết luận' : 'Kết luận của BCS'}: {saved ? ({ ACCEPT: 'Chấp nhận', REQUEST_SUPPLEMENT: 'Đã yêu cầu bổ sung', REJECT_ITEM: 'Từ chối tệp', HOLD: 'Tạm giữ để xác minh' }[saved.decision]) : 'Chưa có'}

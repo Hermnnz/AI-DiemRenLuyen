@@ -17,7 +17,7 @@ class Settings(BaseSettings):
     # Security
     SECRET_KEY: str = os.getenv("SECRET_KEY", "dev_secret_key_change_in_production_min_32_chars")
     SESSION_EXPIRE_HOURS: int = int(os.getenv("SESSION_EXPIRE_HOURS", "24"))
-    DEMO_PASSWORD: str = os.getenv("DEMO_PASSWORD", "Demo@123456")
+    DEMO_PASSWORD: str = os.getenv("DEMO_PASSWORD", "Demo123456")
     
     # Storage
     STORAGE_DIR: str = os.getenv("STORAGE_DIR", "./storage")

@@ -140,7 +140,7 @@ export const LoginPage: React.FC = () => {
         {import.meta.env.DEV && <div style={{ marginTop: '1.5rem', fontSize: '0.8rem', color: '#64748b', borderTop: '1px solid #e2e8f0', paddingTop: '1rem', lineHeight: 1.6 }}>
           <strong>Tài khoản seed mẫu theo vai trò:</strong>
           <ul style={{ paddingLeft: '1.25rem', marginTop: '0.25rem' }}>
-            <li>Sinh viên: <code>sv001</code>, <code>sv002</code>, <code>sv003</code></li>
+            <li>Sinh viên: <code>sv001</code>, <code>sv002</code>, <code>sv003</code>, <code>sv004</code></li>
             <li>Ban cán sự lớp: <code>bcs001</code></li>
             <li>Giáo viên chủ nhiệm: <code>gvcn001</code></li>
             <li>Quản trị viên: <code>admin001</code></li>

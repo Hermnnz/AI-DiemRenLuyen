@@ -17,7 +17,6 @@ import {
   CheckCircle,
   Eye,
   Info,
-  ShieldAlert,
   Printer,
   Layers,
   Loader2,
@@ -547,20 +546,6 @@ export const BcsCaseDetail: React.FC = () => {
                 Hạn sinh viên bổ sung: <Deadline isoString={caseData.deadlines.supplement_at} label="Hạn" />
               </div>
             )}
-            <div
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '0.25rem',
-                color: '#b45309',
-                backgroundColor: '#fef3c7',
-                padding: '0.15rem 0.5rem',
-                borderRadius: '4px',
-                fontWeight: 600,
-              }}
-            >
-              <ShieldAlert size={14} /> Chế độ kiểm tra thủ công — AI chưa kích hoạt
-            </div>
           </div>
         </div>
 

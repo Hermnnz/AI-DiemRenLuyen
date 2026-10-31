@@ -154,11 +154,11 @@ export const CriterionCard: React.FC<CriterionCardProps> = ({
   }, [options]);
 
   return (
-    <div className={`criterion-card ${isFlagged ? 'flagged' : ''}`} style={{ marginBottom: '1.25rem' }}>
+    <div className={`criterion-card ${isFlagged ? 'flagged' : ''}`} style={{ marginBottom: '0.45rem' }}>
       {/* 1. Tiêu đề và điểm tối đa */}
       <div className="criterion-header">
         <div className="criterion-title-group" style={{ flex: 1 }}>
-          <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '0.4rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '0.35rem' }}>
             <span className="criterion-code-title">
               {criterion.code}: {criterion.title}
             </span>
@@ -166,61 +166,61 @@ export const CriterionCard: React.FC<CriterionCardProps> = ({
             {isSystemLocked && (
               <span
                 style={{
-                  fontSize: '0.75rem',
+                  fontSize: '0.725rem',
                   color: '#4338ca',
                   backgroundColor: '#e0e7ff',
-                  padding: '0.2rem 0.5rem',
-                  borderRadius: '4px',
+                  padding: '0.15rem 0.4rem',
+                  borderRadius: '3px',
                   fontWeight: 600,
                   display: 'inline-flex',
                   alignItems: 'center',
-                  gap: '0.25rem',
+                  gap: '0.2rem',
                 }}
               >
-                <Lock size={12} /> Hệ thống quy đổi tự động (Khóa tự nhập)
+                <Lock size={11} /> Tự động quy đổi (Khóa nhập)
               </span>
             )}
 
             {isCadreCriterion && (
               <span
                 style={{
-                  fontSize: '0.75rem',
+                  fontSize: '0.725rem',
                   color: '#b45309',
                   backgroundColor: '#fef3c7',
-                  padding: '0.2rem 0.5rem',
-                  borderRadius: '4px',
+                  padding: '0.15rem 0.4rem',
+                  borderRadius: '3px',
                   fontWeight: 600,
                   display: 'inline-flex',
                   alignItems: 'center',
-                  gap: '0.25rem',
+                  gap: '0.2rem',
                 }}
               >
-                <Award size={12} /> Ban cán sự sẽ xác minh chức vụ/thành tích
+                <Award size={11} /> BCS xác minh chức vụ/thành tích
               </span>
             )}
 
             {needsEvidenceNow && !isSystemLocked && (
               <span
                 style={{
-                  fontSize: '0.75rem',
+                  fontSize: '0.725rem',
                   color: hasEvidence ? '#15803d' : '#b91c1c',
                   backgroundColor: hasEvidence ? '#f0fdf4' : '#fef2f2',
-                  padding: '0.15rem 0.5rem',
-                  borderRadius: '4px',
+                  padding: '0.12rem 0.4rem',
+                  borderRadius: '3px',
                   fontWeight: 600,
                   display: 'inline-flex',
                   alignItems: 'center',
-                  gap: '0.25rem',
+                  gap: '0.2rem',
                 }}
               >
                 {hasEvidence ? (
                   <>
-                    <CheckCircle2 size={12} />
+                    <CheckCircle2 size={11} />
                     <span>Đã có minh chứng</span>
                   </>
                 ) : (
                   <>
-                    <AlertCircle size={12} />
+                    <AlertCircle size={11} />
                     <span>Bắt buộc minh chứng</span>
                   </>
                 )}
@@ -229,7 +229,7 @@ export const CriterionCard: React.FC<CriterionCardProps> = ({
           </div>
 
           {criterion.description && (
-            <p style={{ fontSize: '0.85rem', color: '#64748b', marginTop: '0.25rem', whiteSpace: 'pre-line' }}>
+            <p style={{ fontSize: '0.8rem', color: '#64748b', marginTop: '0.15rem', lineHeight: 1.35, whiteSpace: 'pre-line' }}>
               {criterion.description}
             </p>
           )}
@@ -237,12 +237,12 @@ export const CriterionCard: React.FC<CriterionCardProps> = ({
           {criterion.evidence_notes && (
             <div
               style={{
-                fontSize: '0.8rem',
+                fontSize: '0.775rem',
                 color: '#475569',
                 backgroundColor: '#f8fafc',
                 borderLeft: '3px solid #3b82f6',
-                padding: '0.35rem 0.6rem',
-                marginTop: '0.4rem',
+                padding: '0.25rem 0.5rem',
+                marginTop: '0.25rem',
                 borderRadius: '0 4px 4px 0',
               }}
             >
@@ -324,8 +324,8 @@ export const CriterionCard: React.FC<CriterionCardProps> = ({
         <>
           {/* 4. Giao diện tự chấm điểm */}
           {sortedOptions && sortedOptions.length > 0 ? (
-            <div style={{ marginTop: '0.75rem', marginBottom: '0.75rem' }}>
-              <div style={{ fontSize: '0.8125rem', fontWeight: 600, color: '#475569', marginBottom: '0.4rem' }}>
+            <div style={{ marginTop: '0.35rem', marginBottom: '0.35rem' }}>
+              <div style={{ fontSize: '0.775rem', fontWeight: 600, color: '#475569', marginBottom: '0.25rem' }}>
                 Chọn mức điểm phù hợp với bạn:
               </div>
               <div className="criterion-options-list">
@@ -372,22 +372,22 @@ export const CriterionCard: React.FC<CriterionCardProps> = ({
                   alignItems: 'center',
                   justifyContent: 'space-between',
                   flexWrap: 'wrap',
-                  gap: '0.75rem',
-                  marginTop: '0.65rem',
-                  padding: '0.55rem 0.85rem',
+                  gap: '0.5rem',
+                  marginTop: '0.35rem',
+                  padding: '0.3rem 0.6rem',
                   backgroundColor: '#f8fafc',
-                  borderRadius: '6px',
+                  borderRadius: '4px',
                   border: '1px solid #e2e8f0',
                 }}
               >
-                <div style={{ fontSize: '0.875rem', color: '#334155' }}>
+                <div style={{ fontSize: '0.8125rem', color: '#334155' }}>
                   Điểm tự chấm:{' '}
-                  <strong style={{ color: '#1e40af', fontSize: '1.05rem' }}>
+                  <strong style={{ color: '#1e40af', fontSize: '0.95rem' }}>
                     {scoreInput ? `${parseFloat(scoreInput).toFixed(2)}` : 'Chưa chọn'}
                   </strong>{' '}
                   / {criterion.max_score} điểm
                 </div>
-                <div style={{ flex: 1, minWidth: '220px' }}>
+                <div style={{ flex: 1, minWidth: '180px' }}>
                   <input
                     id={`note-${criterion.id}`}
                     type="text"
@@ -396,12 +396,12 @@ export const CriterionCard: React.FC<CriterionCardProps> = ({
                     value={noteInput}
                     onChange={handleNoteChange}
                     disabled={!isEditable}
-                    style={{ fontSize: '0.8125rem', padding: '0.35rem 0.6rem' }}
+                    style={{ fontSize: '0.775rem', padding: '0.25rem 0.5rem' }}
                   />
                 </div>
               </div>
               {(scoreError || submissionError) && (
-                <span className="form-error-text" role="alert" style={{ display: 'block', marginTop: '0.35rem' }}>
+                <span className="form-error-text" role="alert" style={{ display: 'block', marginTop: '0.25rem' }}>
                   {scoreError || submissionError}
                 </span>
               )}
@@ -453,9 +453,9 @@ export const CriterionCard: React.FC<CriterionCardProps> = ({
 
           {/* Cho phép đính kèm cả ở tiêu chí có minh chứng gợi ý hoặc yêu cầu bổ sung. */}
           {showEvidenceSection && (
-            <div className="evidence-section">
+            <div className="evidence-section" style={{ marginTop: '0.4rem', paddingTop: '0.35rem' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ fontSize: '0.8125rem', fontWeight: 600, color: hasEvidence ? '#15803d' : '#b91c1c' }}>
+                <span style={{ fontSize: '0.785rem', fontWeight: 600, color: hasEvidence ? '#15803d' : '#b91c1c' }}>
                   Tệp minh chứng ({claim.evidence?.length || 0})
                   {!hasEvidence && needsEvidenceNow && (
                     <span style={{ marginLeft: '0.35rem', color: '#dc2626' }}>* Bắt buộc đính kèm khi chấm điểm</span>
@@ -467,8 +467,8 @@ export const CriterionCard: React.FC<CriterionCardProps> = ({
                     className="btn btn-secondary"
                     aria-busy={isUploading}
                     style={{
-                      padding: '0.3rem 0.75rem',
-                      fontSize: '0.8125rem',
+                      padding: '0.2rem 0.55rem',
+                      fontSize: '0.785rem',
                       cursor: isUploading ? 'not-allowed' : 'pointer',
                       pointerEvents: isUploading ? 'none' : 'auto',
                     }}

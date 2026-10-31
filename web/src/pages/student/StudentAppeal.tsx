@@ -254,7 +254,7 @@ export const StudentAppeal: React.FC = () => {
             Khiếu nại Điểm Đánh giá Rèn luyện
           </h2>
           <p style={{ color: '#64748b', fontSize: '0.875rem' }}>
-            {campaign.title} • Hồ sơ v{studentCase.version}
+            {campaign.title}
           </p>
         </div>
 

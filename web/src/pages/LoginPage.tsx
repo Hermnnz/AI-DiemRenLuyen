@@ -57,7 +57,7 @@ export const LoginPage: React.FC = () => {
         <div style={{ textAlign: 'center', marginBottom: '1.5rem' }}>
           <h2 style={{ fontSize: '1.5rem', fontWeight: 700, color: '#1e40af' }}>Đăng Nhập</h2>
           <p style={{ fontSize: '0.875rem', color: '#64748b', marginTop: '0.25rem' }}>
-            Hệ thống Đánh giá Điểm Rèn Luyện (V1)
+            Hệ thống Đánh giá Điểm Rèn Luyện
           </p>
         </div>
 

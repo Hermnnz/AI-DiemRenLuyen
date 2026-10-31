@@ -164,7 +164,7 @@ export const StudentDashboard: React.FC = () => {
               {campaign.title}
             </h3>
             <p style={{ fontSize: '0.875rem', color: '#64748b', marginTop: '0.25rem' }}>
-              Học kỳ: <strong>{campaign.term}</strong> • Phiên bản hồ sơ: v{studentCase.version}
+              Học kỳ: <strong>{campaign.term}</strong>
             </p>
           </div>
           <div>

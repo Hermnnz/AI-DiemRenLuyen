@@ -442,33 +442,33 @@ export const StudentSubmission: React.FC = () => {
           display: 'flex',
           justifyContent: 'space-between',
           alignItems: 'center',
-          marginBottom: '1.25rem',
+          marginBottom: '0.65rem',
           flexWrap: 'wrap',
-          gap: '1rem',
+          gap: '0.65rem',
         }}
       >
         <div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.25rem' }}>
-            <Link to="/student" style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem', fontSize: '0.85rem' }}>
-              <ArrowLeft size={16} /> Quay lại bảng tin
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', marginBottom: '0.15rem' }}>
+            <Link to="/student" style={{ display: 'inline-flex', alignItems: 'center', gap: '0.25rem', fontSize: '0.8rem' }}>
+              <ArrowLeft size={14} /> Quay lại bảng tin
             </Link>
           </div>
-          <h2 style={{ fontSize: '1.35rem', fontWeight: 700, color: '#0f172a' }}>
+          <h2 style={{ fontSize: '1.2rem', fontWeight: 700, color: '#0f172a', margin: 0 }}>
             Biểu mẫu Tự đánh giá & Nộp minh chứng
           </h2>
-          <p style={{ color: '#64748b', fontSize: '0.875rem' }}>
-            Hồ sơ phiên bản v{studentCase.version} • {campaign.title}
+          <p style={{ color: '#64748b', fontSize: '0.8rem', marginTop: '0.15rem', marginBottom: 0 }}>
+            {campaign.title}
           </p>
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
           <button
             type="button"
             className="btn btn-secondary"
             onClick={() => setShowPrintModal(true)}
-            style={{ fontSize: '0.85rem' }}
+            style={{ fontSize: '0.8rem', padding: '0.3rem 0.6rem' }}
           >
-            <Printer size={15} /> Xem & In phiếu (A4)
+            <Printer size={14} /> Xem & In phiếu (A4)
           </button>
 
           <StatusBadge status={studentCase.status} />
@@ -558,34 +558,34 @@ export const StudentSubmission: React.FC = () => {
           const isOverCap = sub.raw > group.maxScore;
 
           return (
-            <div key={group.code} style={{ marginBottom: '2rem' }}>
+            <div key={group.code} style={{ marginBottom: '0.85rem' }}>
               {/* Section Header Card */}
               <div
                 style={{
                   backgroundColor: '#f8fafc',
                   border: '1px solid #cbd5e1',
                   borderLeft: '4px solid #1e40af',
-                  borderRadius: '6px',
-                  padding: '0.85rem 1.25rem',
-                  marginBottom: '1rem',
+                  borderRadius: '5px',
+                  padding: '0.45rem 0.85rem',
+                  marginBottom: '0.45rem',
                   display: 'flex',
                   justifyContent: 'space-between',
                   alignItems: 'center',
                   flexWrap: 'wrap',
-                  gap: '0.75rem',
+                  gap: '0.5rem',
                 }}
               >
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                  <Layers size={18} color="#1e40af" />
-                  <span style={{ fontSize: '1rem', fontWeight: 700, color: '#0f172a' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                  <Layers size={16} color="#1e40af" />
+                  <span style={{ fontSize: '0.925rem', fontWeight: 700, color: '#0f172a' }}>
                     {group.title}
                   </span>
                 </div>
 
-                <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', fontSize: '0.875rem' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', fontSize: '0.825rem' }}>
                   <div>
                     Tổng điểm mục:{' '}
-                    <strong style={{ color: '#1e40af', fontSize: '1.05rem' }}>
+                    <strong style={{ color: '#1e40af', fontSize: '0.95rem' }}>
                       {sub.capped.toFixed(2)}
                     </strong>{' '}
                     / {group.maxScore.toFixed(2)} điểm
@@ -593,11 +593,11 @@ export const StudentSubmission: React.FC = () => {
                   {isOverCap && (
                     <span
                       style={{
-                        fontSize: '0.75rem',
+                        fontSize: '0.725rem',
                         color: '#b45309',
                         backgroundColor: '#fef3c7',
-                        padding: '0.2rem 0.5rem',
-                        borderRadius: '4px',
+                        padding: '0.15rem 0.4rem',
+                        borderRadius: '3px',
                         fontWeight: 600,
                       }}
                       title={`Tự chấm: ${sub.raw.toFixed(2)}đ. Điểm áp trần tối đa của mục là ${group.maxScore.toFixed(2)}đ`}
@@ -645,13 +645,13 @@ export const StudentSubmission: React.FC = () => {
       </div>
 
       {/* 8. Thanh tổng kết & Hành động (Sticky / Footer Card) */}
-      <div className="card" style={{ marginTop: '1.5rem', position: 'sticky', bottom: '1rem', zIndex: 10 }}>
+      <div className="card" style={{ marginTop: '0.75rem', marginBottom: '0.5rem', padding: '0.55rem 0.85rem', position: 'sticky', bottom: '0.75rem', zIndex: 10, boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)' }}>
         <div className="student-action-bar" style={{ margin: 0, padding: 0, border: 'none' }}>
           <div>
-            <div style={{ fontSize: '0.85rem', color: '#64748b' }}>Tổng điểm tự khai dự tính:</div>
-            <div style={{ fontSize: '1.45rem', fontWeight: 700, color: '#1e40af' }}>
+            <div style={{ fontSize: '0.785rem', color: '#64748b' }}>Tổng điểm tự khai dự tính:</div>
+            <div style={{ fontSize: '1.25rem', fontWeight: 700, color: '#1e40af' }}>
               {claimedTotal}{' '}
-              <span style={{ fontSize: '0.95rem', color: '#64748b', fontWeight: 400 }}>
+              <span style={{ fontSize: '0.85rem', color: '#64748b', fontWeight: 400 }}>
                 / {maxTotal} điểm {sectionGroups.length > 1 ? '(Tối đa tự chấm 96.00đ + 4.00đ GPA)' : ''}
               </span>
             </div>

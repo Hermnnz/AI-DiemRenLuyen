@@ -10,14 +10,12 @@ import {
   Settings,
   Lock,
   Plus,
-  Trash2,
   Calendar,
   AlertTriangle,
   CheckCircle2,
   Clock,
   Send,
   Save,
-  GraduationCap,
   Layers,
   X,
   FileSpreadsheet,
@@ -90,20 +88,6 @@ export const AdminCampaigns: React.FC = () => {
   const [newOpenAt, setNewOpenAt] = useState(toLocalDateTimeInput(new Date()));
   const [newDeadlineAt, setNewDeadlineAt] = useState(
     toLocalDateTimeInput(new Date(Date.now() + 14 * 24 * 3600 * 1000))
-  );
-
-  // Modal GPA Import
-  const [showGpaModal, setShowGpaModal] = useState(false);
-  const [gpaText, setGpaText] = useState(isDemoMode ?
-    JSON.stringify(
-      [
-        { student_id: 'sv001', gpa: 3.45 },
-        { student_id: 'sv002', gpa: 2.85 },
-        { student_id: 'bcs001', gpa: 3.6 },
-      ],
-      null,
-      2
-    ) : ''
   );
 
   // Modal confirm
@@ -199,38 +183,6 @@ export const AdminCampaigns: React.FC = () => {
 
   const isDraft = hasCampaign && campaign.status === 'DRAFT';
   const canEdit = hasCampaign && ['DRAFT', 'SCHEDULED', 'OPEN', 'REVIEW'].includes(campaign.status);
-
-  // Criteria handlers
-  const handleAddCriterion = () => {
-    const nextOrder = criteria.length + 1;
-    const newCode = `TC0${nextOrder}`;
-    const newCrit: Criterion = {
-      id: `crit-new-${Date.now()}`,
-      campaign_id: campaign.id,
-      code: newCode,
-      title: `Tiêu chí mới ${nextOrder}`,
-      description: 'Mô tả tiêu chí minh họa',
-      max_score: '10.00',
-      requires_evidence: true,
-      sort_order: nextOrder,
-    };
-    setCriteria([...criteria, newCrit]);
-  };
-
-  const handleUpdateCriterion = (index: number, updated: Partial<Criterion>) => {
-    const copy = [...criteria];
-    copy[index] = { ...copy[index], ...updated };
-    setCriteria(copy);
-  };
-
-  const handleRemoveCriterion = (index: number) => {
-    if (criteria.length <= 1) {
-      setErrorMsg('Đợt đánh giá phải có ít nhất 1 tiêu chí.');
-      return;
-    }
-    const copy = criteria.filter((_, i) => i !== index);
-    setCriteria(copy);
-  };
 
   // Validation
   const validateForm = (): string | null => {
@@ -428,61 +380,6 @@ export const AdminCampaigns: React.FC = () => {
     }
   };
 
-  // Import GPA
-  const handleImportGpa = async () => {
-    try {
-      setSubmitting(true);
-      setErrorMsg(null);
-      setSuccessMsg(null);
-
-      let items: Array<{ student_id: string; gpa: number }> = [];
-      try {
-        items = JSON.parse(gpaText);
-      } catch {
-        // Parse line format: "student_id: gpa" or "student_id, gpa"
-        const lines = gpaText.split('\n');
-        for (const line of lines) {
-          const trimmed = line.trim();
-          if (!trimmed) continue;
-          const parts = trimmed.split(/[:, \t]+/);
-          if (parts.length >= 2) {
-            const sid = parts[0].trim();
-            const gpaNum = parseFloat(parts[1].trim());
-            if (sid && !isNaN(gpaNum)) {
-              items.push({ student_id: sid, gpa: gpaNum });
-            }
-          }
-        }
-      }
-
-      if (!items || items.length === 0) {
-        setErrorMsg('Vui lòng nhập danh sách điểm GPA hợp lệ (JSON hoặc dòng: mã_sv gpa).');
-        setSubmitting(false);
-        return;
-      }
-
-      const res = await api.post<{
-        imported_count: number;
-        audit_log: string;
-        details: Array<{ student_id: string; gpa: number; converted_score: string }>;
-      }>(`/admin/campaigns/${campaign.id}/academic-scores`, { items });
-
-      setShowGpaModal(false);
-      setSuccessMsg(
-        `Đã nhập và quy đổi tự động thành công cho ${res.imported_count} sinh viên (Điều 4e). Ghi nhận nhật ký kiểm toán [${res.audit_log}].`
-      );
-      await loadData();
-    } catch (err: unknown) {
-      const msg =
-        (err as { error?: { message?: string }; message?: string })?.error?.message ||
-        (err as { message?: string })?.message ||
-        'Lỗi khi nhập điểm GPA.';
-      setErrorMsg(msg);
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
       {/* 1. Header */}
@@ -497,16 +394,6 @@ export const AdminCampaigns: React.FC = () => {
         </div>
 
         <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', flexWrap: 'wrap' }}>
-          {hasCampaign && <button
-            type="button"
-            onClick={() => setShowGpaModal(true)}
-            className="btn btn-secondary"
-            style={{ fontSize: '0.85rem' }}
-            title="Nhập điểm GPA học kỳ để hệ thống tự động quy đổi Điều 4e"
-          >
-            <GraduationCap size={15} color="#2563eb" /> Nhập điểm GPA học kỳ
-          </button>}
-
           <button
             type="button"
             disabled={loading || templates.length === 0}
@@ -685,7 +572,7 @@ export const AdminCampaigns: React.FC = () => {
           >
             <AlertTriangle size={16} color="#b45309" />
             <span>
-              Admin được sửa đợt đang {campaign.status}. Nếu sửa tiêu chí, hồ sơ đã có điểm dự kiến sẽ quay lại BCS kiểm tra. Không thể xóa tiêu chí đã có điểm hoặc minh chứng.
+              Admin chỉ được điều chỉnh các thông số và thời hạn của đợt ({campaign.status}). Bộ tiêu chí đánh giá được cố định theo Quy chế chuẩn của nhà trường, không được phép chỉnh sửa.
             </span>
           </div>
         )}
@@ -818,19 +705,14 @@ export const AdminCampaigns: React.FC = () => {
         {/* 3. Danh sách Tiêu chí Đánh giá */}
         <div style={{ borderTop: '1px solid #f1f5f9', paddingTop: '1.25rem' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
-            <h4 style={{ fontSize: '1rem', fontWeight: 700, color: '#0f172a' }}>
-              Bộ Tiêu chí Đánh giá ({criteria.length} tiêu chí)
-            </h4>
-            {canEdit && isEditing && (
-              <button
-                type="button"
-                onClick={handleAddCriterion}
-                className="btn btn-secondary"
-                style={{ padding: '0.3rem 0.6rem', fontSize: '0.8rem' }}
-              >
-                <Plus size={14} /> Thêm tiêu chí
-              </button>
-            )}
+            <div>
+              <h4 style={{ fontSize: '1rem', fontWeight: 700, color: '#0f172a' }}>
+                Bộ Tiêu chí Đánh giá ({criteria.length} tiêu chí)
+              </h4>
+              <p style={{ fontSize: '0.8rem', color: '#64748b', marginTop: '0.15rem' }}>
+                Tiêu chí được cố định theo mẫu quy chế và không thể chỉnh sửa.
+              </p>
+            </div>
           </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
@@ -852,29 +734,8 @@ export const AdminCampaigns: React.FC = () => {
                     <span style={{ fontWeight: 700, fontSize: '0.9rem', color: '#1e40af' }}>
                       #{cr.sort_order}
                     </span>
-                    {canEdit && isEditing ? (
-                      <input
-                        type="text"
-                        value={cr.code}
-                        onChange={(e) => handleUpdateCriterion(idx, { code: e.target.value })}
-                        placeholder="Mã (TC01)"
-                        style={{ width: '80px', padding: '0.3rem', borderRadius: '4px', border: '1px solid #cbd5e1', fontSize: '0.85rem' }}
-                      />
-                    ) : (
-                      <strong style={{ fontSize: '0.95rem' }}>[{cr.code}]</strong>
-                    )}
-
-                    {canEdit && isEditing ? (
-                      <input
-                        type="text"
-                        value={cr.title}
-                        onChange={(e) => handleUpdateCriterion(idx, { title: e.target.value })}
-                        placeholder="Tên tiêu chí"
-                        style={{ flex: 1, minWidth: '200px', padding: '0.3rem', borderRadius: '4px', border: '1px solid #cbd5e1', fontSize: '0.85rem' }}
-                      />
-                    ) : (
-                      <span style={{ fontWeight: 600, fontSize: '0.95rem' }}>{cr.title}</span>
-                    )}
+                    <strong style={{ fontSize: '0.95rem' }}>[{cr.code}]</strong>
+                    <span style={{ fontWeight: 600, fontSize: '0.95rem' }}>{cr.title}</span>
 
                     {cr.section_title && (
                       <span style={{ fontSize: '0.75rem', color: '#64748b', backgroundColor: '#f1f5f9', padding: '0.15rem 0.4rem', borderRadius: '3px' }}>
@@ -886,55 +747,25 @@ export const AdminCampaigns: React.FC = () => {
                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.85rem' }}>
                       <span style={{ color: '#64748b' }}>Tối đa:</span>
-                      {canEdit && isEditing ? (
-                        <input
-                          type="text"
-                          value={cr.max_score}
-                          onChange={(e) => handleUpdateCriterion(idx, { max_score: e.target.value })}
-                          style={{ width: '70px', padding: '0.3rem', borderRadius: '4px', border: '1px solid #cbd5e1', textAlign: 'right', fontSize: '0.85rem' }}
-                        />
-                      ) : (
-                        <strong style={{ color: '#0f172a' }}>{cr.max_score} đ</strong>
-                      )}
+                      <strong style={{ color: '#0f172a' }}>{cr.max_score} đ</strong>
                     </div>
 
-                    <label style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.8rem', cursor: canEdit && isEditing ? 'pointer' : 'default' }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', fontSize: '0.8rem', cursor: 'default' }}>
                       <input
                         type="checkbox"
-                        disabled={!canEdit || !isEditing}
+                        disabled
                         checked={cr.requires_evidence}
-                        onChange={(e) => handleUpdateCriterion(idx, { requires_evidence: e.target.checked })}
+                        readOnly
                       />
                       <span>Cần minh chứng</span>
                     </label>
-
-                    {canEdit && isEditing && (
-                      <button
-                        type="button"
-                        onClick={() => handleRemoveCriterion(idx)}
-                        style={{ background: 'transparent', border: 'none', color: '#dc2626', cursor: 'pointer', padding: '0.2rem' }}
-                        title="Xóa tiêu chí"
-                      >
-                        <Trash2 size={16} />
-                      </button>
-                    )}
                   </div>
                 </div>
 
-                {canEdit && isEditing ? (
-                  <input
-                    type="text"
-                    value={cr.description || ''}
-                    onChange={(e) => handleUpdateCriterion(idx, { description: e.target.value })}
-                    placeholder="Mô tả hướng dẫn cho tiêu chí..."
-                    style={{ width: '100%', padding: '0.3rem', borderRadius: '4px', border: '1px solid #cbd5e1', fontSize: '0.8rem' }}
-                  />
-                ) : (
-                  cr.description && (
-                    <div style={{ fontSize: '0.8rem', color: '#64748b' }}>
-                      {cr.description}
-                    </div>
-                  )
+                {cr.description && (
+                  <div style={{ fontSize: '0.8rem', color: '#64748b' }}>
+                    {cr.description}
+                  </div>
                 )}
               </div>
             ))}
@@ -1135,108 +966,6 @@ export const AdminCampaigns: React.FC = () => {
                 onClick={handleCreateCampaign}
               >
                 {submitting ? 'Đang tạo...' : 'Tạo đợt đánh giá'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Modal Nhập Điểm GPA Học Kỳ */}
-      {showGpaModal && (
-        <div
-          style={{
-            position: 'fixed',
-            inset: 0,
-            backgroundColor: 'rgba(15, 23, 42, 0.65)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 9999,
-            padding: '1rem',
-          }}
-        >
-          <div
-            style={{
-              backgroundColor: '#ffffff',
-              borderRadius: '8px',
-              maxWidth: '600px',
-              width: '100%',
-              padding: '1.5rem',
-              boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.2)',
-            }}
-          >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                <GraduationCap size={20} color="#2563eb" />
-                <h3 style={{ fontSize: '1.15rem', fontWeight: 700, color: '#0f172a' }}>
-                  Nhập Điểm GPA Học Kỳ (Quy đổi Điều 4e)
-                </h3>
-              </div>
-              <button
-                type="button"
-                onClick={() => setShowGpaModal(false)}
-                style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: '#94a3b8' }}
-              >
-                <X size={20} />
-              </button>
-            </div>
-
-            <p style={{ fontSize: '0.825rem', color: '#64748b', marginBottom: '0.75rem' }}>
-              Tiêu chí 4e do Nhà trường quy đổi tự động từ điểm GPA (thang 4.0), sinh viên không được phép tự nhập. Nhập danh sách GPA dưới dạng JSON hoặc mỗi dòng một sinh viên: <code>mã_sv gpa</code>.
-            </p>
-
-            <div
-              style={{
-                backgroundColor: '#eff6ff',
-                border: '1px solid #bfdbfe',
-                borderRadius: '6px',
-                padding: '0.6rem 0.85rem',
-                fontSize: '0.8rem',
-                color: '#1e40af',
-                marginBottom: '0.75rem',
-              }}
-            >
-              <strong>Bảng thang quy đổi chính thức:</strong>
-              <ul style={{ margin: '0.2rem 0 0 1.2rem', padding: 0 }}>
-                <li>GPA &ge; 3.20 đến 4.00 &rarr; <strong>4.00 điểm</strong></li>
-                <li>GPA &ge; 2.00 đến dưới 3.20 &rarr; <strong>2.00 điểm</strong></li>
-                <li>GPA &lt; 2.00 &rarr; <strong>0.00 điểm</strong></li>
-              </ul>
-            </div>
-
-            <textarea
-              rows={8}
-              value={gpaText}
-              onChange={(e) => setGpaText(e.target.value)}
-              style={{
-                width: '100%',
-                fontFamily: 'monospace',
-                fontSize: '0.825rem',
-                padding: '0.5rem',
-                borderRadius: '4px',
-                border: '1px solid #cbd5e1',
-              }}
-            />
-
-            <div style={{ fontSize: '0.75rem', color: '#64748b', marginTop: '0.4rem' }}>
-              * Thao tác này sẽ ghi nhận nhật ký kiểm toán (Audit Trail: <code>ACADEMIC_SCORES_IMPORTED</code>) gắn với tài khoản ADMIN thực hiện.
-            </div>
-
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', marginTop: '1.25rem' }}>
-              <button
-                type="button"
-                className="btn btn-secondary"
-                onClick={() => setShowGpaModal(false)}
-              >
-                Hủy
-              </button>
-              <button
-                type="button"
-                className="btn btn-primary"
-                disabled={submitting}
-                onClick={handleImportGpa}
-              >
-                {submitting ? 'Đang cập nhật...' : 'Cập nhật điểm GPA & Quy đổi 4e'}
               </button>
             </div>
           </div>

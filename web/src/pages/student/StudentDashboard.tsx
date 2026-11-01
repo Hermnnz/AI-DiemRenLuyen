@@ -70,16 +70,29 @@ export const StudentDashboard: React.FC = () => {
   }
 
   if (error || !data) {
+    const isNoCampaign = Boolean(
+      error && (
+        error.includes('Chưa có đợt đánh giá') ||
+        error.includes('CAMPAIGN_NOT_FOUND') ||
+        error.includes('chưa được khởi tạo')
+      )
+    );
     return (
       <div className="container" style={{ padding: '1.5rem' }}>
         <StudentScenarioBar onScenarioChange={loadData} />
-        <div className="student-alert student-alert-danger">
-          <AlertTriangle size={20} />
+        <div
+          className={`student-alert ${isNoCampaign ? 'student-alert-info' : 'student-alert-danger'}`}
+          style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginTop: '1rem', padding: '1.25rem' }}
+        >
+          {isNoCampaign ? <Info size={24} /> : <AlertTriangle size={24} />}
           <div>
-            <strong>Lỗi tải dữ liệu:</strong> {error || 'Không tìm thấy hồ sơ sinh viên.'}
+            <strong>{isNoCampaign ? 'Thông báo đợt rèn luyện:' : 'Lỗi tải dữ liệu:'}</strong>{' '}
+            {isNoCampaign
+              ? 'Hiện tại chưa có đợt đánh giá rèn luyện nào đang mở cho lớp của bạn. Vui lòng quay lại sau khi Ban cán sự hoặc Nhà trường mở đợt đánh giá.'
+              : (error || 'Không tìm thấy hồ sơ sinh viên.')}
             <div style={{ marginTop: '0.75rem' }}>
               <button type="button" className="btn btn-secondary" onClick={loadData}>
-                <RefreshCw size={14} /> Thử lại
+                <RefreshCw size={14} /> Tải lại
               </button>
             </div>
           </div>

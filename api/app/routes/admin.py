@@ -35,7 +35,7 @@ from api.app.services.ai_feedback_service import (
 from api.app.services.auth_service import require_roles, verify_csrf
 from api.app.services.file_service import get_file_path
 from api.app.services.remote_storage import create_download_url, remote_storage_enabled
-from api.app.services.workflow_service import open_campaign
+from api.app.services.workflow_service import open_campaign, initialize_campaign_cases
 from api.app.services.audit_service import log_audit
 from api.app.services.scoring_service import parse_score, convert_gpa_to_score, sum_scores
 from api.app.services.template_service import (

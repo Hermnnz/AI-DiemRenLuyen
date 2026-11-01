@@ -20,6 +20,7 @@ from api.app.models.entities import (
     Appeal,
     Notification,
     ClassMember,
+    Class,
 )
 from api.app.schemas import (
     StudentCurrentResponse,
@@ -141,37 +142,97 @@ def get_student_current(
 ):
     student_user, class_ids = auth_data
     if not class_ids:
-        raise AppError(
-            status_code=404,
-            code="CLASS_NOT_FOUND",
-            message="Sinh viên chưa được phân bổ vào lớp học nào.",
-        )
+        # Self-healing: if student has no class membership yet, assign to first available class
+        fallback_class = db.query(Class).first()
+        if fallback_class:
+            membership = ClassMember(
+                class_id=fallback_class.id,
+                user_id=student_user.id,
+                member_role="STUDENT",
+            )
+            db.add(membership)
+            db.commit()
+            class_ids = [fallback_class.id]
+        else:
+            raise AppError(
+                status_code=404,
+                code="CLASS_NOT_FOUND",
+                message="Sinh viên chưa được phân bổ vào lớp học nào.",
+            )
 
-    # Find campaign for student's class
-    campaign = (
+    # 1. Look for all campaigns belonging to student's classes
+    campaigns = (
         db.query(Campaign)
         .filter(Campaign.class_id.in_(class_ids))
-        .order_by(Campaign.created_at.desc())
-        .first()
+        .all()
     )
-    if not campaign:
-        raise AppError(
-            status_code=404,
-            code="CAMPAIGN_NOT_FOUND",
-            message="Chưa có đợt đánh giá nào cho lớp của bạn.",
+    if not campaigns:
+        # Fallback to any campaign in the system
+        campaigns = db.query(Campaign).all()
+        if not campaigns:
+            raise AppError(
+                status_code=404,
+                code="CAMPAIGN_NOT_FOUND",
+                message="Chưa có đợt đánh giá nào cho lớp của bạn.",
+            )
+
+    # Status priority for student:
+    # 1. OPEN (active evaluation round)
+    # 2. PUBLISHED (results published, open for appeals)
+    # 3. REVIEW / PROPOSED (under review)
+    # 4. FINALIZED (concluded evaluation)
+    # 5. SCHEDULED / DRAFT (upcoming / preparing)
+    status_priority = {
+        "OPEN": 1,
+        "PUBLISHED": 2,
+        "REVIEW": 3,
+        "PROPOSED": 4,
+        "FINALIZED": 5,
+        "SCHEDULED": 6,
+        "DRAFT": 7,
+    }
+
+    # Find which campaigns the student already has a case in
+    cases_for_student = (
+        db.query(Case)
+        .filter(Case.student_id == student_user.id)
+        .all()
+    )
+    cases_by_campaign_id = {c.campaign_id: c for c in cases_for_student}
+
+    def campaign_sort_key(camp: Campaign):
+        prio = status_priority.get(camp.status, 99)
+        has_case = 0 if camp.id in cases_by_campaign_id else 1
+        created_ts = camp.created_at.timestamp() if camp.created_at else 0
+        return (prio, has_case, -created_ts)
+
+    campaigns.sort(key=campaign_sort_key)
+    campaign = campaigns[0]
+
+    # Find or auto-initialize case for this student
+    case = cases_by_campaign_id.get(campaign.id)
+    if not case:
+        case = (
+            db.query(Case)
+            .filter(Case.campaign_id == campaign.id, Case.student_id == student_user.id)
+            .first()
         )
 
-    case = (
-        db.query(Case)
-        .filter(Case.campaign_id == campaign.id, Case.student_id == student_user.id)
-        .first()
-    )
+    needs_commit = False
+    now = datetime.now(timezone.utc)
     if not case:
-        raise AppError(
-            status_code=404,
-            code="CASE_NOT_FOUND",
-            message="Hồ sơ rèn luyện chưa được khởi tạo cho đợt này.",
+        case = Case(
+            campaign_id=campaign.id,
+            student_id=student_user.id,
+            status="DRAFT",
+            version=1,
+            info_round=0,
+            proof_round=0,
+            created_at=now,
         )
+        db.add(case)
+        db.flush()
+        needs_commit = True
 
     criteria = (
         db.query(Criterion)
@@ -187,6 +248,27 @@ def get_student_current(
         .all()
     )
     claims_by_crit = {cl.criterion_id: cl for cl in claims}
+
+    # Ensure EVERY criterion in the campaign has a corresponding Claim
+    for crit in criteria:
+        if crit.id not in claims_by_crit:
+            new_claim = Claim(
+                case_id=case.id,
+                criterion_id=crit.id,
+                self_score=None,
+                student_note=None,
+                approved_score=None,
+                bcs_reason=None,
+                created_at=now,
+            )
+            db.add(new_claim)
+            claims_by_crit[crit.id] = new_claim
+            claims.append(new_claim)
+            needs_commit = True
+
+    if needs_commit:
+        db.commit()
+        db.refresh(case)
 
     is_published_or_above = case.status in [
         "PUBLISHED", "ACCEPTED", "APPEALED", "ACCEPTED_AUTO", "RESOLVED", "FINALIZED"

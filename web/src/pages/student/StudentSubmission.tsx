@@ -410,16 +410,29 @@ export const StudentSubmission: React.FC = () => {
   }
 
   if (!data) {
+    const isNoCampaign = Boolean(
+      feedbackMessage?.text && (
+        feedbackMessage.text.includes('Chưa có đợt đánh giá') ||
+        feedbackMessage.text.includes('CAMPAIGN_NOT_FOUND') ||
+        feedbackMessage.text.includes('chưa được khởi tạo')
+      )
+    );
     return (
       <div className="container" style={{ padding: '1.5rem' }}>
         <StudentScenarioBar onScenarioChange={loadData} />
-        <div className="student-alert student-alert-danger" style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginTop: '1rem' }}>
-          <AlertTriangle size={20} />
+        <div
+          className={`student-alert ${isNoCampaign ? 'student-alert-info' : 'student-alert-danger'}`}
+          style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginTop: '1rem', padding: '1.25rem' }}
+        >
+          {isNoCampaign ? <Info size={24} /> : <AlertTriangle size={24} />}
           <div>
-            <strong>Lỗi tải dữ liệu:</strong> {feedbackMessage?.text || 'Không thể tải hồ sơ rèn luyện.'}
+            <strong>{isNoCampaign ? 'Thông báo đợt rèn luyện:' : 'Lỗi tải dữ liệu:'}</strong>{' '}
+            {isNoCampaign
+              ? 'Hiện tại chưa có đợt đánh giá rèn luyện nào đang mở cho lớp của bạn. Vui lòng quay lại sau khi Ban cán sự hoặc Nhà trường mở đợt đánh giá.'
+              : (feedbackMessage?.text || 'Không thể tải hồ sơ rèn luyện.')}
             <div style={{ marginTop: '0.75rem' }}>
               <button className="btn btn-outline" onClick={loadData}>
-                <RefreshCw size={14} style={{ marginRight: '0.5rem' }} /> Thử lại
+                <RefreshCw size={14} style={{ marginRight: '0.5rem' }} /> Tải lại
               </button>
             </div>
           </div>

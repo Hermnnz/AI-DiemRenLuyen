@@ -63,6 +63,23 @@ def initialize_campaign_cases(db: Session, campaign: Campaign):
                     created_at=datetime.now(timezone.utc),
                 )
                 db.add(claim)
+        else:
+            existing_claim_crit_ids = {
+                cl.criterion_id
+                for cl in db.query(Claim.criterion_id).filter(Claim.case_id == existing_case.id).all()
+            }
+            for crit in criteria:
+                if crit.id not in existing_claim_crit_ids:
+                    claim = Claim(
+                        case_id=existing_case.id,
+                        criterion_id=crit.id,
+                        self_score=None,
+                        student_note=None,
+                        approved_score=None,
+                        bcs_reason=None,
+                        created_at=datetime.now(timezone.utc),
+                    )
+                    db.add(claim)
 
 
 def open_campaign(db: Session, campaign: Campaign, actor_user_id: Optional[str], now: datetime):

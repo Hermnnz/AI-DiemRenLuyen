@@ -140,13 +140,41 @@ export const StudentDashboard: React.FC = () => {
         </div>
       </div>
 
-      {/* 3. Banner cảnh báo yêu cầu bổ sung thông tin/minh chứng */}
-      {activeSupplement && (
-        <div className="student-alert student-alert-warning">
+      {/* 3. Banner thông báo trạng thái đóng hồ sơ hoặc yêu cầu bổ sung còn hạn */}
+      {studentCase.status === 'CLOSED_INCOMPLETE' && (
+        <div className="student-alert student-alert-danger" style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1.5rem', padding: '1rem 1.25rem' }}>
+          <AlertTriangle size={24} style={{ flexShrink: 0 }} />
+          <div>
+            <div style={{ fontWeight: 700, fontSize: '0.95rem' }}>
+              Hồ sơ đã đóng do quá hạn bổ sung minh chứng
+            </div>
+            <div style={{ marginTop: '0.25rem', fontSize: '0.875rem' }}>
+              Thời hạn bổ sung minh chứng đã kết thúc ({activeSupplement ? new Date(activeSupplement.deadline_at).toLocaleString('vi-VN') : ''}). Theo quy trình BPMN, hồ sơ đã được chuyển sang trạng thái đóng (Không hoàn tất).
+            </div>
+          </div>
+        </div>
+      )}
+
+      {studentCase.status === 'CLOSED_NO_SUBMIT' && (
+        <div className="student-alert student-alert-danger" style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '1.5rem', padding: '1rem 1.25rem' }}>
+          <AlertTriangle size={24} style={{ flexShrink: 0 }} />
+          <div>
+            <div style={{ fontWeight: 700, fontSize: '0.95rem' }}>
+              Hồ sơ đã đóng do hết hạn nộp
+            </div>
+            <div style={{ marginTop: '0.25rem', fontSize: '0.875rem' }}>
+              Đợt đánh giá đã hết thời hạn nhận hồ sơ tự chấm ({new Date(campaign.submission_deadline_at).toLocaleString('vi-VN')}). Hồ sơ của bạn đã được đóng do chưa nộp đánh giá.
+            </div>
+          </div>
+        </div>
+      )}
+
+      {activeSupplement && (studentCase.status === 'NEEDS_INFO' || studentCase.status === 'NEEDS_PROOF') && new Date(activeSupplement.deadline_at).getTime() > Date.now() && (
+        <div className="student-alert student-alert-warning" style={{ marginBottom: '1.5rem' }}>
           <AlertTriangle size={22} style={{ flexShrink: 0, marginTop: '2px' }} />
           <div style={{ flex: 1 }}>
             <div style={{ fontWeight: 700, fontSize: '0.95rem' }}>
-              Yêu cầu bổ sung {activeSupplement.kind === 'INFO' ? 'thông tin hồ sơ' : 'minh chứng'} (Lượt {activeSupplement.round_no})
+              Yêu cầu bổ sung minh chứng hồ sơ (Lượt {activeSupplement.round_no})
             </div>
             <div style={{ marginTop: '0.25rem' }}>{activeSupplement.reason}</div>
             <div style={{ marginTop: '0.5rem', display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>

@@ -233,6 +233,97 @@ def get_student_current(
         db.add(case)
         db.flush()
         needs_commit = True
+    else:
+        # Check deadline expirations on access (real-time sync according to BPMN)
+        if case.status == "NEEDS_INFO":
+            pending_info = (
+                db.query(SupplementRequest)
+                .filter(
+                    SupplementRequest.case_id == case.id,
+                    SupplementRequest.kind == "INFO",
+                    SupplementRequest.fulfilled_at.is_(None),
+                )
+                .first()
+            )
+            if pending_info:
+                dl = pending_info.deadline_at.replace(tzinfo=timezone.utc) if pending_info.deadline_at.tzinfo is None else pending_info.deadline_at
+                if dl <= now:
+                    case.status = "CLOSED_INCOMPLETE"
+                    case.version += 1
+                    send_notification(
+                        db,
+                        user_id=case.student_id,
+                        type="CLOSED_INCOMPLETE",
+                        title="Hồ sơ đã đóng do quá hạn bổ sung",
+                        body="Đã quá thời hạn bổ sung minh chứng. Hồ sơ của bạn được đóng ở trạng thái không hoàn tất.",
+                        case_id=case.id,
+                        dedup_key=f"closed_incomplete_timeout_{case.id}_{pending_info.id}",
+                    )
+                    log_audit(db, campaign_id=case.campaign_id, case_id=case.id, action="CASE_CLOSED_INCOMPLETE_TIMEOUT")
+                    needs_commit = True
+
+        elif case.status == "NEEDS_PROOF":
+            pending_proof = (
+                db.query(SupplementRequest)
+                .filter(
+                    SupplementRequest.case_id == case.id,
+                    SupplementRequest.kind == "PROOF",
+                    SupplementRequest.fulfilled_at.is_(None),
+                )
+                .first()
+            )
+            if pending_proof:
+                dl = pending_proof.deadline_at.replace(tzinfo=timezone.utc) if pending_proof.deadline_at.tzinfo is None else pending_proof.deadline_at
+                if dl <= now:
+                    case.status = "BCS_REVIEW"
+                    case.version += 1
+                    pending_proof.fulfilled_at = now
+                    send_notification(
+                        db,
+                        user_id=case.student_id,
+                        type="NEEDS_PROOF_TIMEOUT",
+                        title="Hết hạn bổ sung minh chứng",
+                        body="Đã hết thời hạn bổ sung minh chứng. Ban cán sự sẽ đánh giá dựa trên các minh chứng hiện có.",
+                        case_id=case.id,
+                        dedup_key=f"needs_proof_timeout_{case.id}_{pending_proof.id}",
+                    )
+                    log_audit(db, campaign_id=case.campaign_id, case_id=case.id, action="CASE_NEEDS_PROOF_TIMEOUT_RETURN_BCS")
+                    needs_commit = True
+
+        elif case.status == "DRAFT":
+            sub_dl = campaign.submission_deadline_at.replace(tzinfo=timezone.utc) if campaign.submission_deadline_at.tzinfo is None else campaign.submission_deadline_at
+            if sub_dl <= now:
+                case.status = "CLOSED_NO_SUBMIT"
+                case.version += 1
+                send_notification(
+                    db,
+                    user_id=case.student_id,
+                    type="CLOSED_NO_SUBMIT",
+                    title="Đã hết hạn nộp hồ sơ",
+                    body="Đợt đánh giá đã kết thúc thời gian nộp hồ sơ. Hồ sơ của bạn đã được đóng do chưa nộp.",
+                    case_id=case.id,
+                    dedup_key=f"closed_no_submit_{case.id}",
+                )
+                log_audit(db, campaign_id=case.campaign_id, case_id=case.id, action="CASE_CLOSED_NO_SUBMIT")
+                needs_commit = True
+
+        elif case.status == "PUBLISHED" and case.appeal_deadline_at:
+            app_dl = case.appeal_deadline_at.replace(tzinfo=timezone.utc) if case.appeal_deadline_at.tzinfo is None else case.appeal_deadline_at
+            if app_dl <= now:
+                case.status = "ACCEPTED_AUTO"
+                case.acceptance_source = "TIMEOUT"
+                case.version += 1
+                send_notification(
+                    db,
+                    user_id=case.student_id,
+                    type="ACCEPTED_AUTO",
+                    title="Điểm rèn luyện đã được tự động chấp nhận",
+                    body="Đã hết thời hạn phản hồi/khiếu nại. Điểm rèn luyện dự kiến đã được tự động ghi nhận là đồng ý.",
+                    case_id=case.id,
+                    dedup_key=f"accepted_auto_{case.id}",
+                )
+                log_audit(db, campaign_id=case.campaign_id, case_id=case.id, action="CASE_ACCEPTED_AUTO")
+                needs_commit = True
 
     criteria = (
         db.query(Criterion)

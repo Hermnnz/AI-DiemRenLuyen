@@ -6,10 +6,19 @@ import unicodedata
 from sqlalchemy.orm import Session
 
 from api.app.config import settings
+from api.app.review.confidence import meets_confidence_threshold
 from api.app.models.entities import AiReviewRun, Case, Claim, EvidenceFile
 
 
 REQUIRED_FACT_KINDS = {"recipient", "activity_name", "event_date", "issuer"}
+
+
+def _has_visual_concern(assessment: dict) -> bool:
+    signals = assessment.get("visual_signals", [])
+    return not isinstance(signals, list) or any(
+        not isinstance(signal, dict) or signal.get("concern") is not False
+        for signal in signals
+    )
 
 
 def _person_key(value: str) -> str:
@@ -55,17 +64,14 @@ def select_auto_accepted(
                 or assessment.get("raw_verdict", "SUPPORTED") != "SUPPORTED"
                 or assessment.get("post_processing_reason")
                 or assessment.get("model") is None
-                or isinstance(confidence, bool) or not isinstance(confidence, (int, float))
-                or not threshold < confidence <= 1
+                or not meets_confidence_threshold(confidence, threshold)
                 or assessment.get("authenticity") != "UNVERIFIED"
-                or assessment.get("visual_signals")):
+                or _has_visual_concern(assessment)):
             continue
         if require_self_review and (
             self_review.get("status") != "COMPLETED"
             or self_review.get("confirmed") is not True
-            or isinstance(self_confidence, bool)
-            or not isinstance(self_confidence, (int, float))
-            or not threshold < self_confidence <= 1
+            or not meets_confidence_threshold(self_confidence, threshold)
             or self_review.get("issues")
             or self_review.get("model") is None
         ):
@@ -139,9 +145,5 @@ def current_auto_accepted(db: Session, case: Case) -> list[dict]:
         return []
     return [item for item in (run.result_json or {}).get("auto_accepted_evidence", [])
             if item.get("run_id") == run.id
-            and isinstance(item.get("confidence"), (int, float))
-            and not isinstance(item.get("confidence"), bool)
-            and threshold < item["confidence"] <= 1
-            and isinstance(item.get("self_confidence"), (int, float))
-            and not isinstance(item.get("self_confidence"), bool)
-            and threshold < item["self_confidence"] <= 1]
+            and meets_confidence_threshold(item.get("confidence"), threshold)
+            and meets_confidence_threshold(item.get("self_confidence"), threshold)]

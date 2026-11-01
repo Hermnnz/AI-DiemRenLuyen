@@ -25,7 +25,7 @@ from api.app.services.score_decision_service import DECISION_VERSION, evaluate_s
 from api.app.services.auto_evidence_service import select_auto_accepted
 
 
-PIPELINE_VERSION = "gemini-read-transparency-decision-v3"
+PIPELINE_VERSION = "gemini-read-transparency-decision-v4"
 
 
 class StaleReview(Exception):

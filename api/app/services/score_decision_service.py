@@ -7,12 +7,13 @@ from decimal import Decimal, InvalidOperation
 from sqlalchemy.orm import Session
 
 from api.app.config import settings
+from api.app.review.confidence import meets_confidence_threshold
 from api.app.models.entities import Campaign, Case, Claim, Criterion, EvidenceFile
 from api.app.services.rule_check_service import evaluate_case_rules
 from api.app.services.scoring_service import convert_gpa_to_score, sum_scores
 
 
-DECISION_VERSION = "score-decision-v2"
+DECISION_VERSION = "score-decision-v3"
 
 
 def _score_text(value: Decimal | None) -> str | None:
@@ -129,14 +130,10 @@ def evaluate_score_suggestions(
                 item["reason"] = "Minh chứng bị đánh cờ hoặc chưa đủ căn cứ để gợi ý mức điểm."
                 continue
             if any(
-                not isinstance(result.get("confidence"), (int, float))
-                or isinstance(result.get("confidence"), bool)
-                or result["confidence"] <= settings.AI_AUTO_ACCEPT_THRESHOLD
+                not meets_confidence_threshold(result.get("confidence"), settings.AI_AUTO_ACCEPT_THRESHOLD)
                 or (result.get("self_review") or {}).get("status") != "COMPLETED"
                 or (result.get("self_review") or {}).get("confirmed") is not True
-                or not isinstance((result.get("self_review") or {}).get("confidence"), (int, float))
-                or isinstance((result.get("self_review") or {}).get("confidence"), bool)
-                or (result.get("self_review") or {})["confidence"] <= settings.AI_AUTO_ACCEPT_THRESHOLD
+                or not meets_confidence_threshold((result.get("self_review") or {}).get("confidence"), settings.AI_AUTO_ACCEPT_THRESHOLD)
                 or (result.get("self_review") or {}).get("issues")
                 for result in review
             ):

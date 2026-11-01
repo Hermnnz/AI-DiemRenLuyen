@@ -99,7 +99,7 @@ class SelfReview(BaseModel):
 
 
 class GeminiTransparencyProvider:
-    def __init__(self, api_key: str, model: str = "gemini-3.6-flash", client: httpx.AsyncClient | None = None):
+    def __init__(self, api_key: str, model: str = "gemini-3.5-flash-lite", client: httpx.AsyncClient | None = None):
         self.api_key = api_key
         self.model = model
         self.client = client

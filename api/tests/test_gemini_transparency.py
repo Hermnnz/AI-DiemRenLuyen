@@ -27,7 +27,7 @@ CRITERION = {
 def _assess(answer: dict, handler=None) -> dict:
     def respond(request: httpx.Request) -> httpx.Response:
         assert request.headers["x-goog-api-key"] == "test-key"
-        assert request.url.path.endswith("/models/gemini-3.6-flash:generateContent")
+        assert request.url.path.endswith("/models/gemini-3.5-flash-lite:generateContent")
         payload = json.loads(request.content)
         assert payload["generationConfig"]["thinkingConfig"]["thinkingLevel"] == "medium"
         assert payload["contents"][0]["parts"][1]["inline_data"]["mime_type"] == "image/png"
@@ -66,6 +66,7 @@ def test_self_review_uses_separate_prompt_and_preserves_file_binding():
                "visual_signals": [], "limitations": []}
 
     def respond(request: httpx.Request) -> httpx.Response:
+        assert request.url.path.endswith("/models/gemini-3.5-flash-lite:generateContent")
         payload = json.loads(request.content)
         assert "tự kiểm tra lại kết luận" in payload["contents"][0]["parts"][0]["text"]
         assert payload["generationConfig"]["responseJsonSchema"]["required"] == [

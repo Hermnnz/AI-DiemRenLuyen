@@ -2,6 +2,7 @@ import hashlib
 from decimal import Decimal
 
 from api.app.models.entities import Claim, EvidenceFile
+from api.app.config import settings
 from api.app.services.score_decision_service import evaluate_score_suggestions
 from api.app.services.template_service import CRITERIA_49K14_1_DEFINITIONS
 from api.tests.conftest import login_helper
@@ -22,7 +23,8 @@ def _set_criterion(criterion, code, *, section_cap=None):
     criterion.section_max_score = section_cap
 
 
-def test_score_draft_waits_for_evidence_and_cadre_review_without_mutating_approved(db, seed_data):
+def test_score_draft_waits_for_evidence_and_cadre_review_without_mutating_approved(db, seed_data, monkeypatch):
+    monkeypatch.setattr(settings, "AI_AUTO_ACCEPT_THRESHOLD", 0.80)
     campaign = seed_data["campaign"]
     campaign.template_code = "49K14_1_V1"
     case = seed_data["cases"][0]
@@ -52,14 +54,21 @@ def test_score_draft_waits_for_evidence_and_cadre_review_without_mutating_approv
 
     supported = {"evidence_file_id": file.id, "sha256": file.sha256,
                  "criterion_code": "4b_nckh", "verdict": "SUPPORTED",
-                 "confidence": 0.9,
+                 "confidence": 0.80,
                  "self_review": {"status": "COMPLETED", "confirmed": True,
-                                 "confidence": 0.92, "issues": []},
+                                 "confidence": 0.80, "issues": []},
                  "authenticity": "UNVERIFIED", "citations": [{"page": 1, "source_excerpt": "x"}]}
     weak = evaluate_score_suggestions(db, case, assessments=[{
-        **supported, "self_review": {**supported["self_review"], "confidence": 0.85},
+        **supported, "self_review": {**supported["self_review"], "confidence": 0.7999},
     }])
     assert next(item for item in weak["items"] if item["criterion_code"] == "4b_nckh")["status"] == "REVIEW_REQUIRED"
+    for field in ("primary", "self_review"):
+        for value in (0.7999, None, True, "0.80", float("nan"), float("inf"), 1.01):
+            assessment = ({**supported, "confidence": value} if field == "primary" else {
+                **supported, "self_review": {**supported["self_review"], "confidence": value},
+            })
+            invalid = evaluate_score_suggestions(db, case, assessments=[assessment])
+            assert next(item for item in invalid["items"] if item["criterion_code"] == "4b_nckh")["status"] == "REVIEW_REQUIRED"
     after = evaluate_score_suggestions(db, case, assessments=[supported])
     items = {item["criterion_code"]: item for item in after["items"]}
     assert items["4b_nckh"]["draft_score"] == "2.00"

@@ -724,7 +724,7 @@ export const BcsCaseDetail: React.FC = () => {
             <div>
               <h3 style={{ fontSize: '1rem', fontWeight: 700, color: '#0f172a' }}>Hỗ trợ phân tích minh chứng</h3>
               <p style={{ color: '#64748b', fontSize: '0.85rem', marginTop: '0.25rem' }}>
-                AI đối chiếu minh chứng rồi tự rà soát bằng prompt riêng. Cả hai mức tin cậy phải trên 85%; BCS vẫn chốt điểm và có thể bác kết luận AI với lý do.
+                AI đối chiếu minh chứng rồi tự rà soát bằng prompt riêng. Cả hai mức tin cậy phải từ {((aiRun?.result?.auto_accept_threshold ?? 0.80) * 100).toFixed(0)}% trở lên và đủ điều kiện quy tắc; BCS vẫn chốt điểm và có thể bác kết luận AI với lý do.
               </p>
             </div>
             {caseData.status === 'BCS_REVIEW' && (!aiRun || aiRun.stale || (aiRun.result?.auto_accept_threshold === undefined && !['QUEUED', 'RUNNING'].includes(aiRun.status))) && (
@@ -792,7 +792,7 @@ export const BcsCaseDetail: React.FC = () => {
                     </summary>
                     <p style={{ marginTop: '0.45rem' }}>{assessment.reason}</p>
                     {assessment.confidence != null && <p style={{ color: '#475569' }}>Luồng 1 · Mức tin cậy nội dung phù hợp: {(assessment.confidence * 100).toFixed(0)}%</p>}
-                    {assessment.self_review?.status === 'COMPLETED' && <div style={{ padding: '0.5rem', background: assessment.self_review.confirmed && (assessment.self_review.confidence ?? 0) > 0.85 ? '#ecfdf5' : '#fff7ed', borderRadius: '0.4rem' }}>
+                    {assessment.self_review?.status === 'COMPLETED' && <div style={{ padding: '0.5rem', background: assessment.self_review.confirmed && assessment.self_review.confidence != null && assessment.self_review.confidence >= (aiRun.result?.auto_accept_threshold ?? 0.80) && !assessment.self_review.issues?.length ? '#ecfdf5' : '#fff7ed', borderRadius: '0.4rem' }}>
                       <strong>Luồng 2 · AI tự rà soát:</strong> {assessment.self_review.confirmed ? 'Xác nhận' : 'Không xác nhận'} · mức tin cậy {((assessment.self_review.confidence ?? 0) * 100).toFixed(0)}%.
                       {assessment.self_review.reason && <p>{assessment.self_review.reason}</p>}
                       {assessment.self_review.issues?.map((issue, index) => <p key={`issue-${index}`}>Vấn đề: {issue}</p>)}

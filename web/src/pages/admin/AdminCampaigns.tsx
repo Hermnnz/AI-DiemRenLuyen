@@ -116,7 +116,7 @@ export const AdminCampaigns: React.FC = () => {
       // 2. Load templates
       try {
         const tpls = await api.get<EvaluationTemplate[]>('/admin/evaluation-templates');
-        const available = (tpls?.length ? tpls : (isDemoMode ? demoTemplates : [])).filter(t => t.code !== 'LEGACY_DEMO' && t.is_active !== false);
+        const available = (tpls?.length ? tpls : (isDemoMode ? demoTemplates : [])).filter(t => t.is_active !== false);
         setTemplates(available);
         setTemplatesLoaded(true);
         setNewTemplateCode((previous) =>

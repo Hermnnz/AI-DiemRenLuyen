@@ -5,7 +5,6 @@ from sqlalchemy.orm import Session
 from api.app.models.entities import EvaluationTemplate, TemplateCriterion, Criterion, Campaign, Claim
 
 
-TEMPLATE_LEGACY_DEMO_CODE = "LEGACY_DEMO"
 TEMPLATE_49K14_1_CODE = "49K14_1_V1"
 
 # Xếp loại tham khảo theo sheet Parameters
@@ -530,60 +529,10 @@ CRITERIA_49K14_1_DEFINITIONS: List[Dict[str, Any]] = [
 ]
 
 
-CRITERIA_LEGACY_DEMO_DEFINITIONS: List[Dict[str, Any]] = [
-    {
-        "code": "TC01",
-        "section_code": "MUC_1",
-        "section_title": "Tiêu chí 1",
-        "section_max_score": Decimal("10.00"),
-        "title": "Ý thức tham gia học tập",
-        "description": "Dữ liệu minh họa — không dùng để ra quyết định thật. Tối đa 10 điểm.",
-        "max_score": Decimal("10.00"),
-        "requires_evidence": True,
-        "evidence_notes": "Minh chứng bảng điểm học tập.",
-        "allowed_input_roles": ["STUDENT"],
-        "rule_config": None,
-        "sort_order": 1,
-    },
-    {
-        "code": "TC02",
-        "section_code": "MUC_2",
-        "section_title": "Tiêu chí 2",
-        "section_max_score": Decimal("10.00"),
-        "title": "Ý thức chấp hành nội quy, quy chế",
-        "description": "Dữ liệu minh họa — không dùng để ra quyết định thật. Tối đa 10 điểm.",
-        "max_score": Decimal("10.00"),
-        "requires_evidence": False,
-        "evidence_notes": None,
-        "allowed_input_roles": ["STUDENT"],
-        "rule_config": None,
-        "sort_order": 2,
-    },
-    {
-        "code": "TC03",
-        "section_code": "MUC_3",
-        "section_title": "Tiêu chí 3",
-        "section_max_score": Decimal("10.00"),
-        "title": "Ý thức tham gia hoạt động phong trào",
-        "description": "Dữ liệu minh họa — không dùng để ra quyết định thật. Tối đa 10 điểm.",
-        "max_score": Decimal("10.00"),
-        "requires_evidence": True,
-        "evidence_notes": "Chứng nhận tham gia hoạt động phong trào.",
-        "allowed_input_roles": ["STUDENT"],
-        "rule_config": None,
-        "sort_order": 3,
-    },
-]
-
 
 def ensure_templates_seeded(db: Session) -> None:
     """Khởi tạo các mẫu quy tắc chấm (Idempotent) — Duy nhất bộ 23 tiêu chí toàn trường"""
     now = datetime.now(timezone.utc)
-
-    # Vô hiệu hóa triệt để mẫu thử nghiệm LEGACY_DEMO nếu còn tồn tại
-    legacy_tpl = db.query(EvaluationTemplate).filter(EvaluationTemplate.code == TEMPLATE_LEGACY_DEMO_CODE).first()
-    if legacy_tpl and legacy_tpl.is_active:
-        legacy_tpl.is_active = False
 
     # 2. Bộ quy tắc toàn trường; mã kỹ thuật cũ được giữ để không đổi tham chiếu.
     v1_tpl = db.query(EvaluationTemplate).filter(EvaluationTemplate.code == TEMPLATE_49K14_1_CODE).first()

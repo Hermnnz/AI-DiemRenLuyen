@@ -64,7 +64,7 @@ def build_case_snapshot(db: Session, case: Case) -> tuple[str, str, dict]:
         }
         for criterion in criteria
     ]
-    rubric_version = f"{campaign.template_code or 'LEGACY_DEMO'}:{_digest(rubric_items)[:12]}"
+    rubric_version = f"{campaign.template_code or '49K14_1_V1'}:{_digest(rubric_items)[:12]}"
     evidence_items = sorted(
         (
             {"id": item.id, "claim_id": item.claim_id, "sha256": item.sha256, "version_no": item.version_no}
@@ -292,7 +292,7 @@ async def _run_transparency_step(db: Session, run: AiReviewRun, read_results: li
         data = None
         if existing:
             result = existing
-        elif (campaign.template_code in {None, "LEGACY_DEMO"} or not read or not read.get("readable")
+        elif (campaign.template_code is None or not read or not read.get("readable")
                 or not (criterion.description or criterion.evidence_notes)):
             result = {
                 "evidence_file_id": file.id, "sha256": file.sha256,

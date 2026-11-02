@@ -14,7 +14,6 @@ from api.app.services.scoring_service import (
 from api.app.services.template_service import (
     CRITERIA_49K14_1_DEFINITIONS,
     TEMPLATE_49K14_1_CODE,
-    TEMPLATE_LEGACY_DEMO_CODE,
     ensure_templates_seeded,
 )
 from api.app.schemas.common import AppError

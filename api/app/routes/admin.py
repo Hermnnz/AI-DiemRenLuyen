@@ -40,10 +40,8 @@ from api.app.services.audit_service import log_audit
 from api.app.services.scoring_service import parse_score, convert_gpa_to_score, sum_scores
 from api.app.services.template_service import (
     CRITERIA_49K14_1_DEFINITIONS,
-    CRITERIA_LEGACY_DEMO_DEFINITIONS,
     ensure_templates_seeded,
     TEMPLATE_49K14_1_CODE,
-    TEMPLATE_LEGACY_DEMO_CODE,
 )
 
 router = APIRouter(prefix="/admin", tags=["Admin"])

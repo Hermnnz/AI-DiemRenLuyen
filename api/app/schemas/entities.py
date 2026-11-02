@@ -268,7 +268,7 @@ class CampaignSchema(BaseModel):
     term_start_on: Optional[str] = None
     term_end_on: Optional[str] = None
     status: str
-    template_code: Optional[str] = "LEGACY_DEMO"
+    template_code: Optional[str] = "49K14_1_V1"
     open_at: str
     submission_deadline_at: str
     supplement_period_hours: int

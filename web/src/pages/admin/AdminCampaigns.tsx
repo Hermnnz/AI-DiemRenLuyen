@@ -32,11 +32,6 @@ const demoTemplates: EvaluationTemplate[] = [
     version: '1.0.0', description: 'Bộ tiêu chí rèn luyện minh họa',
     total_max_score: '100.00', is_active: true,
   },
-  {
-    id: 'tpl-2', code: 'LEGACY_DEMO', name: 'Mẫu minh họa Demo cũ (TC01-TC03)',
-    version: '0.1.0', description: '3 tiêu chí minh họa thử nghiệm',
-    total_max_score: '30.00', is_active: true,
-  },
 ];
 
 export const AdminCampaigns: React.FC = () => {
@@ -121,7 +116,7 @@ export const AdminCampaigns: React.FC = () => {
       // 2. Load templates
       try {
         const tpls = await api.get<EvaluationTemplate[]>('/admin/evaluation-templates');
-        const available = tpls?.length ? tpls : (isDemoMode ? demoTemplates : []);
+        const available = (tpls?.length ? tpls : (isDemoMode ? demoTemplates : [])).filter(t => t.code !== 'LEGACY_DEMO' && t.is_active !== false);
         setTemplates(available);
         setTemplatesLoaded(true);
         setNewTemplateCode((previous) =>

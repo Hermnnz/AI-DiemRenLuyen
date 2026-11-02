@@ -148,7 +148,7 @@ def get_bcs_active_campaign(
         title=campaign.title,
         term=campaign.term,
         status=campaign.status,
-        template_code=campaign.template_code or "LEGACY_DEMO",
+        template_code=campaign.template_code or "49K14_1_V1",
         open_at=format_datetime(campaign.open_at),
         submission_deadline_at=format_datetime(campaign.submission_deadline_at),
         supplement_period_hours=campaign.supplement_period_hours,

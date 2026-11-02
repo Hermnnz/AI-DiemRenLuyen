@@ -83,7 +83,7 @@ class Campaign(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 
     cls = relationship("Class", back_populates="campaigns")
-    template_code = Column(String(50), default="LEGACY_DEMO", nullable=True)
+    template_code = Column(String(50), default="49K14_1_V1", nullable=True)
     criteria = relationship("Criterion", back_populates="campaign", cascade="all, delete-orphan", order_by="Criterion.sort_order")
     cases = relationship("Case", back_populates="campaign", cascade="all, delete-orphan")
     meetings = relationship("Meeting", back_populates="campaign", cascade="all, delete-orphan")

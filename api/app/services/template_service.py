@@ -577,41 +577,13 @@ CRITERIA_LEGACY_DEMO_DEFINITIONS: List[Dict[str, Any]] = [
 
 
 def ensure_templates_seeded(db: Session) -> None:
-    """Khởi tạo các mẫu quy tắc chấm (Idempotent)"""
+    """Khởi tạo các mẫu quy tắc chấm (Idempotent) — Duy nhất bộ 23 tiêu chí toàn trường"""
     now = datetime.now(timezone.utc)
 
-    # 1. Mẫu Legacy Demo
+    # Vô hiệu hóa triệt để mẫu thử nghiệm LEGACY_DEMO nếu còn tồn tại
     legacy_tpl = db.query(EvaluationTemplate).filter(EvaluationTemplate.code == TEMPLATE_LEGACY_DEMO_CODE).first()
-    if not legacy_tpl:
-        legacy_tpl = EvaluationTemplate(
-            code=TEMPLATE_LEGACY_DEMO_CODE,
-            name="Mẫu minh họa cũ (3 tiêu chí, tối đa 30 điểm)",
-            description="Mẫu thử nghiệm gồm 3 tiêu chí TC01 - TC03 minh họa.",
-            version=1,
-            total_max_score=Decimal("30.00"),
-            is_active=True,
-            created_at=now,
-        )
-        db.add(legacy_tpl)
-        db.flush()
-
-        for c_def in CRITERIA_LEGACY_DEMO_DEFINITIONS:
-            crit = TemplateCriterion(
-                template_id=legacy_tpl.id,
-                code=c_def["code"],
-                section_code=c_def["section_code"],
-                section_title=c_def["section_title"],
-                section_max_score=c_def["section_max_score"],
-                title=c_def["title"],
-                description=c_def["description"],
-                max_score=c_def["max_score"],
-                requires_evidence=c_def["requires_evidence"],
-                evidence_notes=c_def.get("evidence_notes"),
-                allowed_input_roles=c_def.get("allowed_input_roles"),
-                rule_config=c_def.get("rule_config"),
-                sort_order=c_def["sort_order"],
-            )
-            db.add(crit)
+    if legacy_tpl and legacy_tpl.is_active:
+        legacy_tpl.is_active = False
 
     # 2. Bộ quy tắc toàn trường; mã kỹ thuật cũ được giữ để không đổi tham chiếu.
     v1_tpl = db.query(EvaluationTemplate).filter(EvaluationTemplate.code == TEMPLATE_49K14_1_CODE).first()

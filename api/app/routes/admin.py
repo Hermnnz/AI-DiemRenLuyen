@@ -133,45 +133,25 @@ def _validate_campaign_config(payload: CreateCampaignRequest, db: Session):
         raise AppError(status_code=422, code="INVALID_ROUNDS", message="Số vòng bổ sung tối đa không được âm.")
 
     if not payload.criteria:
-        # Tự động nạp tiêu chí từ mẫu nếu được chỉ định
-        if payload.template_code == TEMPLATE_49K14_1_CODE:
-            payload.criteria = [
-                CreateCriterionInput(
-                    code=c["code"],
-                    section_code=c["section_code"],
-                    section_title=c["section_title"],
-                    section_max_score=str(c["section_max_score"]),
-                    title=c["title"],
-                    description=c["description"],
-                    max_score=str(c["max_score"]),
-                    requires_evidence=c["requires_evidence"],
-                    evidence_notes=c.get("evidence_notes"),
-                    allowed_input_roles=c.get("allowed_input_roles"),
-                    rule_config=c.get("rule_config"),
-                    sort_order=c["sort_order"],
-                )
-                for c in CRITERIA_49K14_1_DEFINITIONS
-            ]
-        elif payload.template_code == TEMPLATE_LEGACY_DEMO_CODE:
-            payload.criteria = [
-                CreateCriterionInput(
-                    code=c["code"],
-                    section_code=c.get("section_code"),
-                    section_title=c.get("section_title"),
-                    section_max_score=str(c["section_max_score"]) if c.get("section_max_score") else None,
-                    title=c["title"],
-                    description=c["description"],
-                    max_score=str(c["max_score"]),
-                    requires_evidence=c["requires_evidence"],
-                    evidence_notes=c.get("evidence_notes"),
-                    allowed_input_roles=c.get("allowed_input_roles"),
-                    rule_config=c.get("rule_config"),
-                    sort_order=c["sort_order"],
-                )
-                for c in CRITERIA_LEGACY_DEMO_DEFINITIONS
-            ]
-        else:
-            raise AppError(status_code=422, code="CRITERIA_REQUIRED", message="Đợt đánh giá phải có ít nhất 1 tiêu chí hoặc chọn mẫu hợp lệ.")
+        # Hệ thống áp dụng duy nhất chuẩn quy chế toàn trường (23 tiêu chí, 100 điểm)
+        payload.template_code = TEMPLATE_49K14_1_CODE
+        payload.criteria = [
+            CreateCriterionInput(
+                code=c["code"],
+                section_code=c["section_code"],
+                section_title=c["section_title"],
+                section_max_score=str(c["section_max_score"]),
+                title=c["title"],
+                description=c["description"],
+                max_score=str(c["max_score"]),
+                requires_evidence=c["requires_evidence"],
+                evidence_notes=c.get("evidence_notes"),
+                allowed_input_roles=c.get("allowed_input_roles"),
+                rule_config=c.get("rule_config"),
+                sort_order=c["sort_order"],
+            )
+            for c in CRITERIA_49K14_1_DEFINITIONS
+        ]
 
     seen_codes = set()
     for crit in payload.criteria:
@@ -581,7 +561,7 @@ def get_campaign_by_id(
         term_start_on=camp.term_start_on.isoformat() if camp.term_start_on else None,
         term_end_on=camp.term_end_on.isoformat() if camp.term_end_on else None,
         status=camp.status,
-        template_code=camp.template_code or "LEGACY_DEMO",
+        template_code=camp.template_code or TEMPLATE_49K14_1_CODE,
         open_at=format_datetime(camp.open_at),
         submission_deadline_at=format_datetime(camp.submission_deadline_at),
         supplement_period_hours=camp.supplement_period_hours,

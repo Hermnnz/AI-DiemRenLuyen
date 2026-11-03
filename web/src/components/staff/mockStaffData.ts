@@ -465,6 +465,13 @@ class StaffStoreService {
       );
     }
 
+    list.sort((a, b) => {
+      const timeA = new Date(a.history[a.history.length - 1]?.at || '2026-10-25T11:00:00Z').getTime();
+      const timeB = new Date(b.history[b.history.length - 1]?.at || '2026-10-25T11:00:00Z').getTime();
+      if (timeB !== timeA) return timeB - timeA;
+      return a.student.code.localeCompare(b.student.code);
+    });
+
     const total = list.length;
     const startIndex = (page - 1) * pageSize;
     const paged = list.slice(startIndex, startIndex + pageSize);

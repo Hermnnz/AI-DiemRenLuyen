@@ -241,7 +241,12 @@ def get_campaign_cases(
 
     total = query.count()
     offset = (page - 1) * page_size
-    records = query.order_by(User.username.asc()).offset(offset).limit(page_size).all()
+    records = (
+        query.order_by(Case.updated_at.desc().nullslast(), User.username.asc())
+        .offset(offset)
+        .limit(page_size)
+        .all()
+    )
 
     items = [
         BcsCaseListItem(

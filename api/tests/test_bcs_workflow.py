@@ -281,3 +281,21 @@ def test_bcs_evidence_supplement_opens_proof_round(client, seed_data, db):
     assert detail["supplement_requests"][0]["kind"] == "PROOF"
     assert detail["supplement_requests"][0]["reason"] == "Nộp bản chứng chỉ rõ số hiệu"
     assert detail["evidence_decisions"][0]["decision"] == "REQUEST_SUPPLEMENT"
+
+
+def test_bcs_cases_ordered_by_latest_updated_at(client, seed_data, db):
+    auth_bcs = login_helper(client, "bcs001")
+    camp = seed_data["campaign"]
+    case0 = seed_data["cases"][0]
+    case1 = seed_data["cases"][1]
+
+    now = datetime.now(timezone.utc)
+    case0.updated_at = now - timedelta(hours=2)
+    case1.updated_at = now
+    db.commit()
+
+    resp = client.get(f"/api/v1/bcs/campaigns/{camp.id}/cases", cookies=auth_bcs["cookies"])
+    assert resp.status_code == 200
+    items = resp.json()["items"]
+    assert len(items) >= 2
+    assert items[0]["id"] == case1.id

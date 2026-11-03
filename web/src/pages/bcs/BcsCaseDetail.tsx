@@ -26,16 +26,6 @@ import {
 const isDemoMode = typeof import.meta !== 'undefined' && import.meta.env?.VITE_DEMO_MODE === 'true';
 const aiPilotEnabled = import.meta.env?.VITE_AI_REVIEW_ENABLED === 'true' && !isDemoMode;
 
-const factLabels: Record<string, string> = {
-  document_type: 'Loại minh chứng', recipient: 'Người được ghi nhận',
-  activity_name: 'Tên hoạt động', event_date: 'Ngày hoạt động', issuer: 'Đơn vị cấp/xác nhận',
-  reference_code: 'Mã minh chứng/thẻ', award_level: 'Thành tích',
-  birth_date: 'Ngày sinh', issued_on: 'Ngày cấp/ký',
-  valid_from: 'Có hiệu lực từ', valid_until: 'Có hiệu lực đến',
-  account_name: 'Tên tài khoản', post_content: 'Nội dung bài đăng',
-  post_date: 'Ngày đăng/chia sẻ', source_name: 'Nguồn bài đăng', other: 'Thông tin khác',
-};
-
 export const isSystemCriterion = (criterion: Pick<Criterion, 'code' | 'rule_config' | 'allowed_input_roles'>): boolean => {
   return Boolean(
     criterion.code === '4e' ||
@@ -76,8 +66,6 @@ export const BcsCaseDetail: React.FC = () => {
   const [showPrintModal, setShowPrintModal] = useState<boolean>(false);
   const [aiRun, setAiRun] = useState<AiReviewRun | null>(null);
   const [aiRunLoading, setAiRunLoading] = useState(aiPilotEnabled);
-  const [aiBusy, setAiBusy] = useState(false);
-  const aiRequestLock = useRef(false);
   const [aiError, setAiError] = useState<string | null>(null);
   const [ruleChecks, setRuleChecks] = useState<RuleCheckResponse | null>(null);
   const [ruleError, setRuleError] = useState<string | null>(null);
@@ -189,45 +177,6 @@ export const BcsCaseDetail: React.FC = () => {
     const timer = window.setInterval(() => void loadAiRun(), 5000);
     return () => window.clearInterval(timer);
   }, [id, aiRun?.status]);
-
-  const handleQueueAiReview = async () => {
-    if (!id || aiRequestLock.current) return;
-    aiRequestLock.current = true;
-    setAiBusy(true);
-    setAiError(null);
-    try {
-      const run = await api.post<AiReviewRun>(`/bcs/cases/${id}/ai-reviews`);
-      setAiRun(run);
-      const processed = await api.post<AiReviewRun>(`/bcs/cases/${id}/ai-reviews/${run.id}/process`);
-      setAiRun(processed);
-      await loadCase(true);
-    } catch (err: unknown) {
-      const message = (err as { error?: { message?: string } })?.error?.message;
-      setAiError(message || 'Chưa xử lý được lượt phân tích. Bạn có thể thử tiếp hoặc BCS xem tệp thủ công.');
-    } finally {
-      aiRequestLock.current = false;
-      setAiBusy(false);
-    }
-  };
-
-  const handleProcessAiReview = async () => {
-    if (!id || !aiRun || aiRequestLock.current) return;
-    aiRequestLock.current = true;
-    setAiBusy(true);
-    setAiError(null);
-    try {
-      const processed = await api.post<AiReviewRun>(`/bcs/cases/${id}/ai-reviews/${aiRun.id}/process`);
-      setAiRun(processed);
-      await loadCase(true);
-    } catch (err: unknown) {
-      const message = (err as { error?: { message?: string } })?.error?.message;
-      setAiError(message || 'Chưa xử lý được lượt phân tích. Hãy thử lại sau hoặc BCS xem tệp thủ công.');
-      await loadAiRun();
-    } finally {
-      aiRequestLock.current = false;
-      setAiBusy(false);
-    }
-  };
 
   // Aggregate all evidence files
   const allEvidenceFiles = useMemo(() => {
@@ -774,111 +723,6 @@ export const BcsCaseDetail: React.FC = () => {
         </section>
       )}
 
-      {aiPilotEnabled && (
-        <section className="card" aria-label="Hỗ trợ phân tích minh chứng">
-          <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap', alignItems: 'center' }}>
-            <div>
-              <h3 style={{ fontSize: '1rem', fontWeight: 700, color: '#0f172a' }}>Hỗ trợ phân tích minh chứng</h3>
-              <p style={{ color: '#64748b', fontSize: '0.85rem', marginTop: '0.25rem' }}>
-                Hồ sơ được tự động phân tích sau khi sinh viên nộp. Minh chứng đủ quy tắc và cả hai mức tin cậy từ {((aiRun?.result?.auto_accept_threshold ?? 0.70) * 100).toFixed(0)}% trở lên được AI tạm chấp nhận. BCS xử lý ngoại lệ và chốt điểm.
-              </p>
-            </div>
-            {caseData.status === 'BCS_REVIEW' && (!aiRun || aiRun.stale || (aiRun.result?.auto_accept_threshold === undefined && !['QUEUED', 'RUNNING'].includes(aiRun.status))) && (
-              <button type="button" className="btn btn-secondary" onClick={handleQueueAiReview} disabled={aiBusy} aria-busy={aiBusy}>
-                {aiBusy && <Loader2 size={14} className="ai-spinner" aria-hidden="true" />}
-                <span role={aiBusy ? 'status' : undefined}>{aiBusy ? 'Đang phân tích minh chứng...' : aiRun ? 'Phân tích lại minh chứng bằng AI' : 'Phân tích và xét minh chứng bằng AI'}</span>
-              </button>
-            )}
-            {caseData.status === 'BCS_REVIEW' && aiRun && ['QUEUED', 'RUNNING'].includes(aiRun.status) && (
-              <button type="button" className="btn btn-secondary" onClick={() => void handleProcessAiReview()} disabled={aiBusy} aria-busy={aiBusy}>
-                {aiBusy ? 'Đang phân tích minh chứng...' : 'Tiếp tục xử lý AI'}
-              </button>
-            )}
-          </div>
-          {aiError && <p role="alert" style={{ color: '#b91c1c', marginTop: '0.75rem' }}>{aiError}</p>}
-          {aiRun && (
-            <div style={{ marginTop: '0.75rem', fontSize: '0.85rem', color: '#334155' }}>
-              <div>
-                Trạng thái: {['QUEUED', 'RUNNING'].includes(aiRun.status) && <Loader2 size={14} className="ai-spinner" aria-hidden="true" />} <strong>{({
-                  QUEUED: 'Chờ xử lý', RUNNING: 'Đang xử lý', COMPLETED: 'Hoàn tất',
-                  NEEDS_HUMAN: aiRun.error_code ? 'Cần BCS xử lý ngoại lệ' : 'Đã phân tích · BCS xử lý ngoại lệ và chốt điểm', FAILED: 'Lỗi xử lý', STALE: 'Hồ sơ đã đổi',
-                } as Record<string, string>)[aiRun.status] || aiRun.status}</strong>
-                {aiRun.stale && <span style={{ color: '#b45309' }}> · Kết quả cũ không còn hiệu lực</span>}
-              </div>
-              <div style={{ color: '#64748b', marginTop: '0.25rem' }}>Phiên bản hồ sơ: {aiRun.case_version} · Quy tắc: {aiRun.rubric_version}</div>
-              {aiRun.error_code && <p role="status" style={{ color: '#b45309', marginTop: '0.35rem' }}>
-                {aiRun.error_code === 'MODEL_RATE_LIMITED'
-                  ? 'Gemini đang giới hạn lượt gọi. Hãy đợi ít nhất 1 phút rồi bấm “Tiếp tục xử lý AI”, hoặc BCS xem tệp thủ công.'
-                  : `Chưa đọc được minh chứng (${aiRun.error_code}). Ban cán sự xem thủ công.`}
-              </p>}
-              <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', marginTop: '0.5rem' }}>
-                {aiRun.steps.map((step) => (
-                  <span key={step.kind}>{step.kind === 'AI_READ' ? 'Đọc dữ liệu' : 'Đối chiếu minh chứng'}: {step.status}</span>
-                ))}
-              </div>
-              {aiRun.result?.summary && <p style={{ marginTop: '0.5rem' }}>{aiRun.result.summary}</p>}
-              {aiRun.steps.find((step) => step.kind === 'AI_READ')?.output?.files?.map((readFile) => {
-                const evidence = allEvidenceFiles.find((file) => file.id === readFile.evidence_file_id);
-                return (
-                  <details key={readFile.evidence_file_id} style={{ marginTop: '0.6rem', borderTop: '1px solid #e2e8f0', paddingTop: '0.5rem' }}>
-                    <summary style={{ cursor: 'pointer', fontWeight: 600 }}>
-                      {evidence?.original_name || readFile.evidence_file_id} · {readFile.readable ? 'Đã đọc' : 'Cần xem thủ công'}
-                    </summary>
-                    {evidence && <button type="button" className="btn btn-secondary" onClick={() => setPreviewFile(evidence)} style={{ marginTop: '0.5rem' }}>Mở minh chứng gốc</button>}
-                    {!readFile.readable && <p>{readFile.unreadable_reason}</p>}
-                    {readFile.facts.map((fact, index) => (
-                      <p key={`${fact.kind}-${index}`} style={{ marginTop: '0.4rem' }}>
-                        <strong>{factLabels[fact.kind] || fact.kind}:</strong> {fact.value} · trang {fact.page}<br />
-                        <span style={{ color: '#64748b' }}>AI trích: “{fact.source_excerpt}” — cần đối chiếu với tệp gốc.</span>
-                      </p>
-                    ))}
-                  </details>
-                );
-              })}
-              {aiRun.steps.find((step) => step.kind === 'AI_TRANSPARENCY')?.output?.assessments?.map((assessment) => {
-                const evidence = allEvidenceFiles.find((file) => file.id === assessment.evidence_file_id);
-                const autoAccepted = caseData.auto_accepted_evidence?.some((item) => item.evidence_file_id === assessment.evidence_file_id);
-                const verdictLabel = assessment.verdict === 'SUPPORTED'
-                  ? autoAccepted ? 'AI tạm chấp nhận' : 'Luồng 1 phù hợp; BCS cần xem'
-                  : { FLAGGED: 'Cần kiểm tra', UNKNOWN: 'Chưa đủ căn cứ' }[assessment.verdict];
-                return (
-                  <details key={`assessment-${assessment.evidence_file_id}`} style={{ marginTop: '0.6rem', borderTop: '1px solid #e2e8f0', paddingTop: '0.5rem' }}>
-                    <summary style={{ cursor: 'pointer', fontWeight: 600 }}>
-                      [{assessment.criterion_code}] {evidence?.original_name || assessment.evidence_file_id} · {verdictLabel}
-                    </summary>
-                    <p style={{ marginTop: '0.45rem' }}>{assessment.reason}</p>
-                    {assessment.confidence != null && <p style={{ color: '#475569' }}>Luồng 1 · Mức tin cậy nội dung phù hợp: {(assessment.confidence * 100).toFixed(0)}%</p>}
-                    {assessment.self_review?.status === 'COMPLETED' && <div style={{ padding: '0.5rem', background: assessment.self_review.confirmed && assessment.self_review.confidence != null && assessment.self_review.confidence >= (aiRun.result?.auto_accept_threshold ?? 0.70) && !assessment.self_review.issues?.length ? '#ecfdf5' : '#fff7ed', borderRadius: '0.4rem' }}>
-                      <strong>Luồng 2 · AI tự rà soát:</strong> {assessment.self_review.confirmed ? 'Xác nhận' : 'Không xác nhận'} · mức tin cậy {((assessment.self_review.confidence ?? 0) * 100).toFixed(0)}%.
-                      {assessment.self_review.reason && <p>{assessment.self_review.reason}</p>}
-                      {assessment.self_review.issues?.map((issue, index) => <p key={`issue-${index}`}>Vấn đề: {issue}</p>)}
-                    </div>}
-                    {assessment.self_review?.status === 'FAILED' && <p style={{ color: '#b45309' }}>Luồng tự rà soát chưa chạy được ({assessment.self_review.error_code}); BCS cần xem minh chứng.</p>}
-                    <p style={{ color: '#64748b', marginTop: '0.3rem' }}>Điều khoản: {assessment.rule_clause_id} · {assessment.rule_text}</p>
-                    {assessment.evidence_requirements && <p style={{ color: '#64748b' }}>Yêu cầu minh chứng: {assessment.evidence_requirements}</p>}
-                    {assessment.citations.map((citation, index) => (
-                      <p key={`citation-${index}`} style={{ marginTop: '0.3rem' }}>Trang {citation.page}: “{citation.source_excerpt}”</p>
-                    ))}
-                    {assessment.visual_signals.map((signal, index) => (
-                      <p key={`signal-${index}`} style={{ color: signal.concern ? '#92400e' : '#475569' }}>
-                        Dấu hiệu trên trang {signal.page}: {signal.description}
-                      </p>
-                    ))}
-                    <p style={{ color: '#92400e', marginTop: '0.3rem' }}>
-                      {assessment.authenticity === 'SUSPICIOUS'
-                        ? 'Có dấu hiệu cần kiểm tra bản gốc và đơn vị cấp.'
-                        : 'AI chưa xác minh được tính thật giả hoặc đơn vị cấp.'}
-                    </p>
-                    {assessment.limitations.map((limitation, index) => <p key={`limit-${index}`} style={{ color: '#64748b' }}>{limitation}</p>)}
-                    {evidence && <button type="button" className="btn btn-secondary" onClick={() => setPreviewFile(evidence)}>Mở minh chứng gốc</button>}
-                  </details>
-                );
-              })}
-            </div>
-          )}
-        </section>
-      )}
-
       {/* Audit History Panel */}
       {showHistory && (
         <div className="card" style={{ backgroundColor: '#f8fafc', border: '1px dashed #cbd5e1' }}>
@@ -955,12 +799,23 @@ export const BcsCaseDetail: React.FC = () => {
                     gap: '0.35rem',
                   }}
                 >
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontWeight: 600, fontSize: '0.85rem', color: '#0f172a' }}>
-                      <FileText size={16} color="#0284c7" />
-                      <span>{file.original_name}</span>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem', minWidth: 0 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', fontWeight: 600, fontSize: '0.85rem', color: '#0f172a', minWidth: 0, flex: 1 }}>
+                      <FileText size={16} color="#0284c7" style={{ flexShrink: 0 }} />
+                      <span
+                        style={{
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                          display: 'inline-block',
+                          minWidth: 0,
+                        }}
+                        title={file.original_name}
+                      >
+                        {file.original_name}
+                      </span>
                     </div>
-                    <span style={{ fontSize: '0.75rem', color: '#64748b' }}>
+                    <span style={{ fontSize: '0.75rem', color: '#64748b', flexShrink: 0 }}>
                       {(file.size_bytes / 1024).toFixed(0)} KB
                     </span>
                   </div>
@@ -996,15 +851,17 @@ export const BcsCaseDetail: React.FC = () => {
                         {(required || saved || !autoAccepted) && <span style={{ fontSize: '0.78rem', fontWeight: 600, color: required ? '#9a3412' : '#475569' }}>
                           {aiPending && required && !saved ? 'Đang chờ AI xét minh chứng' : <>{required && isReviewOpen ? 'Cần BCS kết luận' : 'Kết luận của BCS'}: {saved ? ({ ACCEPT: 'Chấp nhận', REQUEST_SUPPLEMENT: 'Đã yêu cầu bổ sung', REJECT_ITEM: 'Từ chối tệp', HOLD: 'Tạm giữ để xác minh' }[saved.decision]) : 'Chưa có'}</>}
                         </span>}
-                        {saved && <p style={{ fontSize: '0.75rem', color: '#475569', margin: 0 }}>Căn cứ: {saved.reason}</p>}
+                        {saved && <p style={{ fontSize: '0.75rem', color: '#475569', margin: 0 }}>Lý do kiểm chứng: {saved.reason}</p>}
                         {editable && autoAccepted && !reconsiderEvidenceIds.includes(file.id) && <button type="button" className="btn btn-secondary" onClick={() => {
                           setReconsiderEvidenceIds((previous) => [...previous, file.id]);
                           setEvidenceChoices((previous) => ({ ...previous, [file.id]: 'REJECT_ITEM' }));
                         }}>{saved ? 'Sửa quyết định BCS' : 'BCS xem xét lại / bác kết luận AI'}</button>}
                         {editable && !aiPending && (!autoAccepted || reconsiderEvidenceIds.includes(file.id)) && (
                           <>
-                            <label htmlFor={`decision-${file.id}`} style={{ fontSize: '0.75rem', fontWeight: 600 }}>Hướng xử lý minh chứng</label>
-                            <select id={`decision-${file.id}`} value={evidenceChoices[file.id] || ''}
+                            <label htmlFor={`decision-${file.id}`} style={{ fontSize: '0.75rem', fontWeight: 600, color: '#334155' }}>Hướng xử lý minh chứng</label>
+                            <select
+                              id={`decision-${file.id}`}
+                              value={evidenceChoices[file.id] || ''}
                               onChange={(event) => {
                                 const decision = event.target.value;
                                 setEvidenceChoices((prev) => ({ ...prev, [file.id]: decision }));
@@ -1016,20 +873,57 @@ export const BcsCaseDetail: React.FC = () => {
                                   });
                                 }
                               }}
-                              disabled={savingEvidenceId !== null}>
+                              disabled={savingEvidenceId !== null}
+                              style={{
+                                fontFamily: 'inherit',
+                                fontSize: '0.8rem',
+                                color: '#0f172a',
+                                backgroundColor: '#ffffff',
+                                border: '1px solid #cbd5e1',
+                                borderRadius: '4px',
+                                padding: '0.4rem 0.6rem',
+                                width: '100%',
+                              }}
+                            >
                               <option value="">Chọn quyết định</option>
                               <option value="ACCEPT">Chấp nhận tệp</option>
                               <option value="REQUEST_SUPPLEMENT" disabled={caseData.rounds.proof >= caseData.rounds.proof_max}>Yêu cầu sinh viên bổ sung</option>
                               <option value="REJECT_ITEM">Từ chối tệp</option>
                               <option value="HOLD">Tạm giữ để xác minh</option>
                             </select>
-                            <label htmlFor={`reason-${file.id}`} style={{ fontSize: '0.75rem', fontWeight: 600 }}>Căn cứ quyết định</label>
-                            <textarea id={`reason-${file.id}`} rows={2} value={evidenceReasons[file.id] || ''}
+
+                            <label htmlFor={`reason-${file.id}`} style={{ fontSize: '0.75rem', fontWeight: 600, color: '#334155' }}>
+                              Lý do cần kiểm chứng
+                            </label>
+                            <textarea
+                              id={`reason-${file.id}`}
+                              rows={2}
+                              value={evidenceReasons[file.id] || ''}
                               onChange={(event) => setEvidenceReasons((prev) => ({ ...prev, [file.id]: event.target.value }))}
-                              placeholder="Nêu thông tin đã đối chiếu và lý do chấp nhận hoặc xử lý tiếp"
-                              disabled={savingEvidenceId !== null} />
-                            <button type="button" className="btn btn-primary" disabled={savingEvidenceId !== null || !evidenceChoices[file.id] || !evidenceReasons[file.id]?.trim()}
-                              onClick={() => void handleSaveEvidenceDecision(file.id)}>
+                              placeholder="Nêu lý do tệp chưa đạt / cần kiểm chứng (vd: vì sao không pass hoặc cần xác minh lại)..."
+                              disabled={savingEvidenceId !== null}
+                              style={{
+                                fontFamily: 'inherit',
+                                fontSize: '0.8rem',
+                                color: '#0f172a',
+                                backgroundColor: '#ffffff',
+                                border: '1px solid #cbd5e1',
+                                borderRadius: '4px',
+                                padding: '0.45rem 0.6rem',
+                                width: '100%',
+                                resize: 'vertical',
+                              }}
+                            />
+                            <button
+                              type="button"
+                              className="btn btn-primary"
+                              disabled={savingEvidenceId !== null || !evidenceChoices[file.id] || !evidenceReasons[file.id]?.trim()}
+                              onClick={() => void handleSaveEvidenceDecision(file.id)}
+                              style={{
+                                fontSize: '0.8rem',
+                                padding: '0.4rem 0.75rem',
+                              }}
+                            >
                               {savingEvidenceId === file.id ? 'Đang lưu quyết định...' : 'Lưu quyết định minh chứng'}
                             </button>
                           </>
@@ -1296,7 +1190,7 @@ export const BcsCaseDetail: React.FC = () => {
                         Tiêu chí này do Nhà trường tự động thừa nhận điểm từ kết quả học tập (TBCHK). Ban cán sự không cần và không được chỉnh sửa.
                       </span>
                     </div>
-                  ) : (
+                  ) : (isDiff || caseData.draft_editable) ? (
                     <div>
                       <input
                         type="text"
@@ -1311,25 +1205,24 @@ export const BcsCaseDetail: React.FC = () => {
                         placeholder={
                           caseData.draft_editable
                             ? 'Bắt buộc nêu căn cứ điều chỉnh dự thảo...'
-                            : isDiff
-                            ? 'Bắt buộc nhập lý do vì điểm duyệt khác tự khai...'
-                            : 'Lý do phê duyệt (tùy chọn)...'
+                            : 'Bắt buộc nhập lý do vì điểm duyệt khác tự khai...'
                         }
                         style={{
                           width: '100%',
                           padding: '0.35rem 0.6rem',
                           borderRadius: '4px',
-                          border: canEditScores && isDiff && !currentReason.trim() ? '1px solid #ef4444' : '1px solid #cbd5e1',
+                          border: canEditScores && !currentReason.trim() ? '1px solid #ef4444' : '1px solid #cbd5e1',
                           fontSize: '0.8rem',
+                          fontFamily: 'inherit',
                         }}
                       />
-                      {canEditScores && (isDiff || caseData.draft_editable) && !currentReason.trim() && (
+                      {canEditScores && !currentReason.trim() && (
                         <div style={{ fontSize: '0.725rem', color: '#dc2626', marginTop: '0.2rem', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
                           <Info size={12} /> {caseData.draft_editable ? 'Bắt buộc ghi căn cứ điều chỉnh dự thảo.' : 'Bắt buộc nhập lý do khi điểm duyệt khác điểm sinh viên tự khai.'}
                         </div>
                       )}
                     </div>
-                  )}
+                  ) : null}
                 </div>
               );
             })}

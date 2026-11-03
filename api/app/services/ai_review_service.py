@@ -25,7 +25,7 @@ from api.app.services.score_decision_service import DECISION_VERSION, evaluate_s
 from api.app.services.auto_evidence_service import select_auto_accepted
 
 
-PIPELINE_VERSION = "gemini-read-transparency-decision-v5-typed-evidence"
+PIPELINE_VERSION = "gemini-read-transparency-decision-v6-typed-evidence"
 
 
 class StaleReview(Exception):
@@ -33,6 +33,17 @@ class StaleReview(Exception):
 def _digest(data: object) -> str:
     encoded = json.dumps(data, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
+
+
+def _prompt_versions() -> dict[str, str]:
+    return {"read": PROMPT_VERSION, "transparency": TRANSPARENCY_PROMPT_VERSION,
+            "self_review": SELF_REVIEW_PROMPT_VERSION}
+
+
+def _combined_prompt_version() -> str:
+    # PostgreSQL limits this indexed metadata field to 50 characters. Preserve
+    # full component versions in result_json rather than truncating any version.
+    return "ai-prompts:" + _digest(_prompt_versions())[:24]
 
 
 def build_case_snapshot(db: Session, case: Case) -> tuple[str, str, dict]:
@@ -273,7 +284,8 @@ async def _run_transparency_step(db: Session, run: AiReviewRun, read_results: li
     step.status = "RUNNING"
     step.started_at = step.started_at or datetime.now(timezone.utc)
     run.model = f"{settings.GEMINI_MODEL} + {settings.GEMINI_TRANSPARENCY_MODEL}"
-    run.prompt_version = f"{PROMPT_VERSION} + {TRANSPARENCY_PROMPT_VERSION} + {SELF_REVIEW_PROMPT_VERSION}"
+    run.prompt_version = _combined_prompt_version()
+    run.result_json = {**(run.result_json or {}), "prompt_versions": _prompt_versions()}
     db.commit()
 
     for snapshot_file in expected:
@@ -434,6 +446,7 @@ async def run_ai_tick(db: Session, limit: int = 1, target_run_id: str | None = N
                     "auto_accepted_evidence": auto_accepted,
                     "auto_accept_threshold": settings.AI_AUTO_ACCEPT_THRESHOLD,
                     "pipeline_version": PIPELINE_VERSION,
+                    "prompt_versions": _prompt_versions(),
                     "rule_checks": rule_checks,
                     "score_suggestions": evaluate_score_suggestions(
                         db, case, assessments=assessments, rule_checks=rule_checks,

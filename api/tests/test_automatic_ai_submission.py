@@ -227,3 +227,43 @@ def test_submit_rollback_also_removes_queued_job(db, automatic_submission):
     assert case.status == "DRAFT"
     assert db.query(AiReviewRun).filter_by(case_id=case.id).count() == 0
     assert calls == []
+
+
+def test_automatic_review_respects_postgres_prompt_version_limit(client, db, automatic_submission):
+    from sqlalchemy import event
+    from sqlalchemy.orm import Session
+    from api.app.services.ai_review_service import _prompt_versions
+
+    case, _, _, _, calls = automatic_submission
+    observed = []
+    def enforce_varchar_limit(session, _context, _instances):
+        for instance in session.new.union(session.dirty):
+            if isinstance(instance, AiReviewRun) and instance.prompt_version:
+                observed.append(instance.prompt_version)
+                assert len(instance.prompt_version) <= AiReviewRun.__table__.c.prompt_version.type.length
+    event.listen(Session, "before_flush", enforce_varchar_limit)
+    try:
+        student = login_helper(client, "sv001")
+        response = client.post(f"/api/v1/student/cases/{case.id}/submit",
+                               json={"expected_version": case.version}, cookies=student["cookies"], headers=student["headers"])
+        assert response.status_code == 200
+    finally:
+        event.remove(Session, "before_flush", enforce_varchar_limit)
+    db.expire_all()
+    run = db.query(AiReviewRun).filter_by(case_id=case.id).one()
+    assert observed and run.error_code is None
+    assert calls == ["read", "assess", "self_review"]
+    assert run.prompt_version.startswith("ai-prompts:")
+    assert run.result_json["prompt_versions"] == _prompt_versions()
+    assert run.result_json["auto_accepted_evidence"]
+
+
+def test_compact_prompt_identity_changes_with_any_component_version(monkeypatch):
+    from api.app.services import ai_review_service as service
+
+    baseline = service._combined_prompt_version()
+    for name in ("PROMPT_VERSION", "TRANSPARENCY_PROMPT_VERSION", "SELF_REVIEW_PROMPT_VERSION"):
+        with monkeypatch.context() as patch:
+            patch.setattr(service, name, getattr(service, name) + "-new")
+            assert service._combined_prompt_version() != baseline
+            assert len(service._combined_prompt_version()) <= 50

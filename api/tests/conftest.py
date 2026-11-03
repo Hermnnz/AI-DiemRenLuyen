@@ -35,6 +35,16 @@ engine = create_engine(
 TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
+@pytest.fixture(autouse=True)
+def isolate_ai_configuration(monkeypatch):
+    # Tests opt in with mocked providers; local .env must never spend live quota.
+    from api.app.config import settings
+
+    monkeypatch.setattr(settings, "AI_READ_ENABLED", False)
+    monkeypatch.setattr(settings, "AI_TRANSPARENCY_ENABLED", False)
+    monkeypatch.setattr(settings, "GEMINI_API_KEY", "")
+
+
 @pytest.fixture(scope="session", autouse=True)
 def setup_test_db():
     Base.metadata.create_all(bind=engine)

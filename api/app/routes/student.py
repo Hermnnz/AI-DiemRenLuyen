@@ -3,7 +3,7 @@ from decimal import Decimal
 from typing import Optional, List
 import hashlib
 import uuid
-from fastapi import APIRouter, Depends, Form, UploadFile, File, Header, status
+from fastapi import APIRouter, BackgroundTasks, Depends, Form, UploadFile, File, Header, status
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy.exc import IntegrityError
@@ -21,6 +21,7 @@ from api.app.models.entities import (
     Notification,
     ClassMember,
     Class,
+    AiReviewRun,
 )
 from api.app.schemas import (
     StudentCurrentResponse,
@@ -49,6 +50,7 @@ from api.app.services.remote_storage import create_upload_url, download_object, 
 from api.app.services.upload_ticket import issue_upload_ticket, verify_upload_ticket
 from api.app.services.scoring_service import parse_score, validate_score_bounds, validate_criterion_levels, sum_scores
 from api.app.services.workflow_service import submit_student_case
+from api.app.services.ai_review_dispatch import process_submitted_review
 from api.app.services.audit_service import log_audit
 from api.app.services.notification_service import send_notification
 from api.app.services.rule_check_service import evaluate_case_rules
@@ -789,6 +791,7 @@ def remove_evidence(
 def submit_case(
     caseId: str,
     payload: SubmitCaseRequest,
+    background_tasks: BackgroundTasks,
     idempotency_key: Optional[str] = Header(None, alias="Idempotency-Key"),
     auth_data: tuple[User, list[str]] = Depends(require_roles("STUDENT")),
     db: Session = Depends(get_db),
@@ -804,6 +807,15 @@ def submit_case(
     )
     db.commit()
     db.refresh(updated_case)
+
+    if updated_case.status == "BCS_REVIEW":
+        run = (db.query(AiReviewRun).filter(
+            AiReviewRun.case_id == updated_case.id,
+            AiReviewRun.case_version == updated_case.version,
+            AiReviewRun.status == "QUEUED",
+        ).order_by(AiReviewRun.created_at.desc()).first())
+        if run:
+            background_tasks.add_task(process_submitted_review, run.id)
 
     return SubmitCaseResponse(
         case_id=updated_case.id,

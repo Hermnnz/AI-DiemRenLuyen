@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field, ValidationError, model_validator
 
 
 ALLOWED_MIME_TYPES = {"application/pdf", "image/jpeg", "image/png"}
-PROMPT_VERSION = "ai-read-v2"
+PROMPT_VERSION = "ai-read-v3-typed-evidence"
 
 READ_PROMPT = (
     "Đọc minh chứng điểm rèn luyện này và chỉ trích xuất dữ kiện nhìn thấy. "
@@ -19,12 +19,24 @@ READ_PROMPT = (
     "Không kết luận giấy thật hay giả, không đối chiếu quy chế và không chấm điểm. "
     "Với mỗi dữ kiện, ghi nguyên văn ngắn từ tệp và số trang bắt đầu từ 1 (ảnh là trang 1). "
     "Chỉ ghi điều đọc được; không đoán tên, ngày, đơn vị cấp hoặc mã chứng nhận. "
+    "Phân loại document_type bằng tiêu đề nhìn thấy (ví dụ thẻ BHYT, bài đăng Facebook, giấy hiến máu). "
+    "Tách đúng vai trò thời gian: event_date là ngày diễn ra hoạt động/hiến máu; birth_date là ngày sinh; "
+    "issued_on là ngày ký/cấp; valid_from và valid_until là ngày bắt đầu/kết thúc hiệu lực BHYT; "
+    "post_date là ngày người dùng đăng/chia sẻ bài. Mốc đủ 5 năm BHYT liên tục ghi other, không phải valid_from. "
+    "Ngày chỉ có ngày/tháng mà thiếu năm phải giữ nguyên, không tự thêm năm. "
+    "Nếu nhìn thấy đủ ngày/tháng/năm, chuẩn hóa value thành YYYY-MM-DD; source_excerpt vẫn giữ "
+    "nguyên văn và gồm nhãn ngữ cảnh của mốc thời gian (ngày sinh, giá trị sử dụng, ngày hiến máu...). "
+    "Với thẻ BHYT: trích recipient, issuer (cơ quan BHXH), reference_code (mã thẻ), valid_from và valid_until nếu nhìn thấy; "
+    "không tạo tên hoạt động. Với bài đăng: trích account_name, post_content, post_date, source_name nếu thấy; "
+    "không suy đoán tên thật từ biệt danh. Với giấy hiến máu, trích rõ người hiến và event_date nếu được ghi. "
     "Nếu tệp không đọc được, đặt readable=false, facts=[] và nêu lý do."
 )
 
 FACT_KINDS = [
     "document_type", "activity_name", "event_date", "issuer",
     "recipient", "award_level", "reference_code", "other",
+    "birth_date", "issued_on", "valid_from", "valid_until",
+    "account_name", "post_content", "post_date", "source_name",
 ]
 
 READ_SCHEMA = {
@@ -54,6 +66,8 @@ class ReadFact(BaseModel):
     kind: Literal[
         "document_type", "activity_name", "event_date", "issuer",
         "recipient", "award_level", "reference_code", "other",
+        "birth_date", "issued_on", "valid_from", "valid_until",
+        "account_name", "post_content", "post_date", "source_name",
     ]
     value: str = Field(min_length=1)
     page: int = Field(ge=1)

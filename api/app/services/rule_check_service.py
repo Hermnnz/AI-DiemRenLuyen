@@ -3,7 +3,6 @@
 Findings advise a human reviewer; this module never approves evidence or scores.
 """
 
-import re
 from collections import defaultdict
 from datetime import date, datetime, timezone
 from decimal import Decimal, InvalidOperation
@@ -11,24 +10,10 @@ from decimal import Decimal, InvalidOperation
 from sqlalchemy.orm import Session
 
 from api.app.models.entities import Campaign, Case, Claim, Criterion, EvidenceFile
+from api.app.review.evidence_policy import identity_matches, parse_date as _parse_date, policy_for, policy_issues
 
 
-RULE_VERSION = "evidence-rules-v1"
-DATE_PATTERN = re.compile(r"(?<!\d)(\d{4}-\d{1,2}-\d{1,2}|\d{1,2}[/-]\d{1,2}[/-]\d{4})(?!\d)")
-
-
-def _parse_date(value: str) -> date | None:
-    matches = DATE_PATTERN.findall(value)
-    if len(matches) != 1:
-        return None
-    candidate = matches[0]
-    formats = ("%Y-%m-%d",) if candidate[:4].isdigit() and candidate[4:5] == "-" else ("%d/%m/%Y", "%d-%m-%Y")
-    for fmt in formats:
-        try:
-            return datetime.strptime(candidate, fmt).date()
-        except ValueError:
-            continue
-    return None
+RULE_VERSION = "evidence-rules-v2"
 
 
 def evaluate_case_rules(db: Session, case: Case, read_results: list[dict] | None = None) -> dict:
@@ -115,25 +100,19 @@ def evaluate_case_rules(db: Session, case: Case, read_results: list[dict] | None
             if criterion is None or claim.self_score is None or claim.self_score <= 0:
                 continue
             if not read_file.get("readable"):
-                add("EVIDENCE_UNREADABLE", "UNKNOWN", "Không đọc được ngày hoạt động trên minh chứng.",
+                add("EVIDENCE_UNREADABLE", "UNKNOWN", "Không đọc được nội dung minh chứng.",
                     criterion, [file.id])
                 continue
-            date_facts = [fact for fact in read_file.get("facts", []) if fact.get("kind") == "event_date"]
-            if not date_facts:
-                add("EVENT_DATE_NOT_FOUND", "UNKNOWN", "Chưa tìm thấy ngày hoạt động trên minh chứng.",
-                    criterion, [file.id])
-                continue
-            dates = {_parse_date(str(fact.get("value", ""))) for fact in date_facts}
-            if None in dates or len(dates) != 1:
-                add("EVENT_DATE_AMBIGUOUS", "UNKNOWN", "Ngày hoạt động chưa đủ rõ để kiểm tra bằng luật.",
-                    criterion, [file.id])
-                continue
-            event_date = next(iter(dates))
-            if term_ready and not (campaign.term_start_on <= event_date <= campaign.term_end_on):
-                add("EVENT_DATE_OUTSIDE_TERM", "FLAGGED", "Ngày hoạt động nằm ngoài khoảng học kỳ đã cấu hình.",
-                    criterion, [file.id], details={"event_date": event_date.isoformat(),
-                                                    "term_start_on": campaign.term_start_on.isoformat(),
-                                                    "term_end_on": campaign.term_end_on.isoformat()})
+            facts = read_file.get("facts", [])
+            policy = policy_for(criterion.code, facts, campaign.template_code)
+            for finding in policy_issues(policy, facts, campaign.term_start_on, campaign.term_end_on):
+                add(finding["code"], finding["level"], finding["message"], criterion,
+                    [file.id], details=finding["details"])
+            if (any(fact.get("kind") in {"recipient", "account_name"} for fact in facts)
+                    and not identity_matches(policy, facts, case.student.full_name)):
+                add("EVIDENCE_IDENTITY_UNCONFIRMED", "FLAGGED",
+                    "Người nhận hoặc tài khoản trên minh chứng chưa khớp đầy đủ với tên sinh viên; BCS cần đối chiếu.",
+                    criterion, [file.id], details={"evidence_type": policy.code})
 
     findings.sort(key=lambda item: (item["criterion_code"] or "", item["code"], item["evidence_file_ids"]))
     return {

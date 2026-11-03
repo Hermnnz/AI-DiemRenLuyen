@@ -11,10 +11,11 @@ import httpx
 from pydantic import BaseModel, Field, ValidationError
 
 from api.app.review.gemini_read import ALLOWED_MIME_TYPES, GeminiReadError, ReadContent
+from api.app.review.evidence_policy import context_for
 
 
-PROMPT_VERSION = "ai-transparency-v2"
-SELF_REVIEW_PROMPT_VERSION = "ai-transparency-self-review-v1"
+PROMPT_VERSION = "ai-transparency-v3-typed-evidence"
+SELF_REVIEW_PROMPT_VERSION = "ai-transparency-self-review-v2-typed-evidence"
 
 SELF_REVIEW_PROMPT = (
     "Bạn là người tự kiểm tra lại kết luận AI vừa tạo về minh chứng điểm rèn luyện. "
@@ -26,6 +27,10 @@ SELF_REVIEW_PROMPT = (
     "confidence từ 0 đến 1 là mức tin cậy vào chính kết luận trước đó, không phải xác suất "
     "tài liệu là thật. Ghi từng vấn đề cụ thể vào issues; nếu còn nghi ngờ, confirmed=false. "
     "Không tuyên bố đã xác minh QR, nguồn cấp hoặc tính thật giả nếu không có nguồn độc lập. "
+    "Áp dụng evidence_policy theo loại minh chứng: BHYT không cần tên/ngày hoạt động; "
+    "giấy hiến máu đã có loại hoạt động ở tiêu đề; bài đăng cần đúng tài khoản, nội dung và ngày đăng. "
+    "Không dùng ngày sinh/ngày cấp thay ngày hiệu lực hay ngày hoạt động; tuân thủ các nhóm dữ kiện "
+    "bắt buộc và điều kiện thời gian trong evidence_policy. "
     "Trả JSON theo schema."
 )
 
@@ -51,7 +56,10 @@ TRANSPARENCY_PROMPT = (
     "SUPPORTED chỉ có nghĩa nội dung nhìn thấy phù hợp điều khoản và có dữ kiện trích dẫn; "
     "FLAGGED là có mâu thuẫn/dấu hiệu cụ thể cần người xem; UNKNOWN khi thiếu hoặc mơ hồ. "
     "Chỉ đưa chỉ số của facts được cấp vào fact_indexes, không tự tạo trích dẫn. "
-    "Nếu kết luận SUPPORTED, trích rõ tên người nhận, hoạt động, ngày và đơn vị cấp khi nhìn thấy. "
+    "Nếu kết luận SUPPORTED, trích đủ các nhóm dữ kiện bắt buộc theo evidence_policy khi nhìn thấy. "
+    "BHYT dùng người được bảo hiểm, loại thẻ, mã thẻ, cơ quan BHXH và thời gian hiệu lực, không cần tên hoạt động. "
+    "Không dùng ngày ký/cấp, ngày sinh hoặc mốc 5 năm liên tục làm ngày hiệu lực. "
+    "Bài đăng dùng tài khoản, nội dung, nguồn và ngày đăng; không tự suy tên thật/năm còn thiếu. "
     "Mỗi visual_signal phải mô tả dấu hiệu cụ thể và số trang; nếu không thấy rõ, để trống. "
     "Luôn nêu giới hạn xác minh. Ghi confidence từ 0 đến 1 cho mức chắc chắn rằng "
     "nội dung nhìn thấy khớp tiêu chí; đây không phải xác suất giấy tờ là thật. "
@@ -128,6 +136,8 @@ class GeminiTransparencyProvider:
             "student_name": student_name,
             "term": term,
             "read_facts": [fact.model_dump() for fact in read_content.facts],
+            "evidence_policy": context_for(criterion, [fact.model_dump() for fact in read_content.facts]),
+            "term_window": criterion.get("term_window"),
         }
         payload = {
             "contents": [{"role": "user", "parts": [
@@ -239,6 +249,8 @@ class GeminiTransparencyProvider:
             "student_name": student_name,
             "term": term,
             "read_facts": read_result.get("facts", []),
+            "evidence_policy": context_for(criterion, read_result.get("facts", [])),
+            "term_window": criterion.get("term_window"),
             "previous_assessment": {
                 key: primary_assessment.get(key) for key in
                 ("verdict", "confidence", "reason", "citations", "visual_signals", "limitations")

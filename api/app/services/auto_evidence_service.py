@@ -1,12 +1,12 @@
 """Provisional AI acceptance of visible evidence; BCS retains the final score decision."""
 
-import re
-import unicodedata
-
 from sqlalchemy.orm import Session
 
 from api.app.config import settings
 from api.app.review.confidence import meets_confidence_threshold
+from api.app.review.evidence_policy import (
+    identity_matches, normalize_text, policy_for, policy_issues, required_facts_present,
+)
 from api.app.models.entities import AiReviewRun, Case, Claim, EvidenceFile
 
 
@@ -22,16 +22,14 @@ def _has_visual_concern(assessment: dict) -> bool:
 
 
 def _person_key(value: str) -> str:
-    value = unicodedata.normalize("NFD", value.casefold().replace("đ", "d"))
-    value = "".join(char for char in value if unicodedata.category(char) != "Mn")
-    return re.sub(r"[^a-z0-9]+", " ", value).strip()
+    return normalize_text(value)
 
 
 def select_auto_accepted(
     db: Session, case: Case, run: AiReviewRun, reads: list[dict],
     assessments: list[dict], rule_checks: dict, *, require_self_review: bool = True,
 ) -> list[dict]:
-    """Accept only exact current files with cited identity, activity, issuer and date."""
+    """Accept exact current files only against the applicable evidence policy."""
     if not (settings.AI_AUTO_ACCEPT_ENABLED and settings.AI_READ_ENABLED
             and settings.AI_TRANSPARENCY_ENABLED and settings.GEMINI_API_KEY):
         return []
@@ -99,12 +97,14 @@ def select_auto_accepted(
             continue
         if not all(isinstance(item, dict) and item in facts for item in cited):
             continue
-        cited_kinds = {item.get("kind") for item in cited}
-        if not REQUIRED_FACT_KINDS.issubset(cited_kinds):
+        policy = policy_for(criterion.code, facts, case.campaign.template_code)
+        if not required_facts_present(policy, cited):
             continue
-        if _person_key(case.student.full_name) not in {
-            _person_key(item.get("value", "")) for item in cited if item.get("kind") == "recipient"
-        }:
+        if (not identity_matches(policy, facts, case.student.full_name)
+                or not identity_matches(policy, cited, case.student.full_name)):
+            continue
+        if (policy_issues(policy, facts, case.campaign.term_start_on, case.campaign.term_end_on)
+                or policy_issues(policy, cited, case.campaign.term_start_on, case.campaign.term_end_on)):
             continue
         accepted.append({
             "evidence_file_id": file_id,
@@ -112,6 +112,8 @@ def select_auto_accepted(
             "version_no": file.version_no,
             "criterion_id": criterion.id,
             "criterion_code": criterion.code,
+            "evidence_type": policy.code,
+            "evidence_type_label": policy.label,
             "run_id": run.id,
             "confidence": confidence,
             "self_confidence": self_confidence if require_self_review else None,

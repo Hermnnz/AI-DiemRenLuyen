@@ -1,5 +1,6 @@
 import hashlib
 from decimal import Decimal
+import pytest
 
 from api.app.models.entities import Claim, EvidenceFile
 from api.app.config import settings
@@ -23,8 +24,10 @@ def _set_criterion(criterion, code, *, section_cap=None):
     criterion.section_max_score = section_cap
 
 
-def test_score_draft_waits_for_evidence_and_cadre_review_without_mutating_approved(db, seed_data, monkeypatch):
-    monkeypatch.setattr(settings, "AI_AUTO_ACCEPT_THRESHOLD", 0.80)
+@pytest.mark.parametrize("threshold", [0.70, 0.80])
+def test_score_draft_waits_for_evidence_and_cadre_review_without_mutating_approved(db, seed_data, monkeypatch, threshold):
+    monkeypatch.setattr(settings, "AI_AUTO_ACCEPT_THRESHOLD", threshold)
+    below_threshold = float(Decimal(str(threshold)) - Decimal("0.0001"))
     campaign = seed_data["campaign"]
     campaign.template_code = "49K14_1_V1"
     case = seed_data["cases"][0]
@@ -54,16 +57,16 @@ def test_score_draft_waits_for_evidence_and_cadre_review_without_mutating_approv
 
     supported = {"evidence_file_id": file.id, "sha256": file.sha256,
                  "criterion_code": "4b_nckh", "verdict": "SUPPORTED",
-                 "confidence": 0.80,
+                 "confidence": threshold,
                  "self_review": {"status": "COMPLETED", "confirmed": True,
-                                 "confidence": 0.80, "issues": []},
+                                 "confidence": threshold, "issues": []},
                  "authenticity": "UNVERIFIED", "citations": [{"page": 1, "source_excerpt": "x"}]}
     weak = evaluate_score_suggestions(db, case, assessments=[{
-        **supported, "self_review": {**supported["self_review"], "confidence": 0.7999},
+        **supported, "self_review": {**supported["self_review"], "confidence": below_threshold},
     }])
     assert next(item for item in weak["items"] if item["criterion_code"] == "4b_nckh")["status"] == "REVIEW_REQUIRED"
     for field in ("primary", "self_review"):
-        for value in (0.7999, None, True, "0.80", float("nan"), float("inf"), 1.01):
+        for value in (below_threshold, None, True, str(threshold), float("nan"), float("inf"), 1.01):
             assessment = ({**supported, "confidence": value} if field == "primary" else {
                 **supported, "self_review": {**supported["self_review"], "confidence": value},
             })

@@ -26,6 +26,7 @@ def deadline_tick(authorization: str | None = Header(default=None), db: Session 
     return run_deadline_tick(db, datetime.now(timezone.utc))
 
 
+@router.get("/ai-tick", response_model=AiTickResponse)
 @router.post("/ai-tick", response_model=AiTickResponse)
 async def ai_tick(authorization: str | None = Header(default=None), db: Session = Depends(get_db)):
     if not settings.CRON_SECRET:

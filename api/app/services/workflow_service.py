@@ -17,6 +17,7 @@ from api.app.models.entities import (
     User,
 )
 from api.app.review.provider import ManualReviewProvider
+from api.app.config import settings
 from api.app.schemas.common import AppError, format_score
 from api.app.services.audit_service import log_audit
 from api.app.services.notification_service import send_notification
@@ -255,6 +256,14 @@ def submit_student_case(
         actor_user_id=actor_user.id,
         after_json={"status": case.status, "version": case.version, "missing_items": missing_items},
     )
+
+    if case.status == "BCS_REVIEW" and settings.AI_READ_ENABLED and settings.GEMINI_API_KEY:
+        from api.app.services.ai_review_service import enqueue_ai_review
+
+        # Persist the job in the same transaction as the submitted case. A lost
+        # response must not leave a submitted case without its AI work item.
+        db.flush()
+        enqueue_ai_review(db, case, actor_user.id, commit=False, automatic=True)
 
     return case, missing_items
 

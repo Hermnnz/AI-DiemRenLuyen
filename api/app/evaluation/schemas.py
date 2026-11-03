@@ -47,6 +47,8 @@ FactKind = Literal[
     "award_level",
     "reference_code",
     "other",
+    "birth_date", "issued_on", "valid_from", "valid_until",
+    "account_name", "post_content", "post_date", "source_name",
 ]
 
 

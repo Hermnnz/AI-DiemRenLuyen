@@ -25,7 +25,7 @@ from api.app.services.score_decision_service import DECISION_VERSION, evaluate_s
 from api.app.services.auto_evidence_service import select_auto_accepted
 
 
-PIPELINE_VERSION = "gemini-read-transparency-decision-v4"
+PIPELINE_VERSION = "gemini-read-transparency-decision-v5-typed-evidence"
 
 
 class StaleReview(Exception):
@@ -88,7 +88,9 @@ def build_case_snapshot(db: Session, case: Case) -> tuple[str, str, dict]:
     return rubric_version, _digest(evidence_items), snapshot
 
 
-def enqueue_ai_review(db: Session, case: Case, requested_by: str) -> AiReviewRun:
+def enqueue_ai_review(
+    db: Session, case: Case, requested_by: str, *, commit: bool = True, automatic: bool = False,
+) -> AiReviewRun:
     if case.status != "BCS_REVIEW":
         raise AppError(status_code=409, code="INVALID_STATE", message="Chỉ phân tích AI khi hồ sơ đang chờ Ban cán sự xem xét.")
     rubric_version, evidence_fingerprint, snapshot = build_case_snapshot(db, case)
@@ -111,7 +113,7 @@ def enqueue_ai_review(db: Session, case: Case, requested_by: str) -> AiReviewRun
         evidence_fingerprint=evidence_fingerprint,
         idempotency_key=idempotency_key,
         snapshot_json=snapshot,
-        result_json={"rule_checks": evaluate_case_rules(db, case)},
+        result_json={"rule_checks": evaluate_case_rules(db, case), "automatic": automatic},
         status="QUEUED",
         created_at=datetime.now(timezone.utc),
     )
@@ -132,7 +134,10 @@ def enqueue_ai_review(db: Session, case: Case, requested_by: str) -> AiReviewRun
 
     log_audit(db, campaign_id=case.campaign_id, case_id=case.id, action="AI_REVIEW_QUEUED",
               actor_user_id=requested_by, after_json={"run_id": run.id, "case_version": case.version})
-    db.commit()
+    if commit:
+        db.commit()
+    else:
+        db.flush()
     return run
 
 
@@ -142,6 +147,9 @@ def is_stale(db: Session, run: AiReviewRun) -> bool:
         return True
     if (run.status in {"COMPLETED", "NEEDS_HUMAN"}
             and (run.result_json or {}).get("pipeline_version") != PIPELINE_VERSION):
+        return True
+    if (run.status in {"COMPLETED", "NEEDS_HUMAN"}
+            and (run.result_json or {}).get("auto_accept_threshold") != settings.AI_AUTO_ACCEPT_THRESHOLD):
         return True
     rubric_version, evidence_fingerprint, snapshot = build_case_snapshot(db, case)
     if run.status in {"COMPLETED", "NEEDS_HUMAN"}:
@@ -288,6 +296,11 @@ async def _run_transparency_step(db: Session, run: AiReviewRun, read_results: li
             "code": criterion.code, "title": criterion.title,
             "description": criterion.description or "", "evidence_notes": criterion.evidence_notes or "",
             "rule_config": criterion.rule_config or {}, "clause_id": clause_id,
+            "template_code": campaign.template_code,
+            "term_window": {
+                "start_on": campaign.term_start_on.isoformat() if campaign.term_start_on else None,
+                "end_on": campaign.term_end_on.isoformat() if campaign.term_end_on else None,
+            },
         }
         data = None
         if existing:

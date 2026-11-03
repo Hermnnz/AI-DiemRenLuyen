@@ -1,11 +1,15 @@
-from fastapi import APIRouter, Depends, status
+from datetime import datetime
+
+from fastapi import APIRouter, BackgroundTasks, Depends, status
 from sqlalchemy.orm import Session
 
 from api.app.database import get_db
+from api.app.config import settings
 from api.app.models.entities import AiReviewRun, Campaign, Case, User
 from api.app.schemas.ai_reviews import AiLatestResponse, AiReviewResponse, RuleCheckResponse, ScoreSuggestionResponse
 from api.app.schemas.common import AppError
 from api.app.services.ai_review_service import build_case_snapshot, enqueue_ai_review, is_stale, serialize_run, run_ai_tick
+from api.app.services.ai_review_dispatch import process_submitted_review
 from api.app.services.rule_check_service import evaluate_case_rules
 from api.app.services.score_decision_service import evaluate_score_suggestions
 from api.app.services.auth_service import require_roles, verify_csrf
@@ -95,17 +99,28 @@ async def process_ai_review(
 @router.get("/cases/{case_id}/ai-reviews/latest", response_model=AiLatestResponse)
 def latest_ai_review(
     case_id: str,
+    background_tasks: BackgroundTasks,
     auth_data: tuple[User, list[str]] = Depends(require_roles("BCS")),
     db: Session = Depends(get_db),
 ):
-    _, class_ids = auth_data
-    _authorized_case(db, case_id, class_ids)
+    user, class_ids = auth_data
+    case = _authorized_case(db, case_id, class_ids)
     run = (
         db.query(AiReviewRun)
         .filter(AiReviewRun.case_id == case_id)
         .order_by(AiReviewRun.created_at.desc(), AiReviewRun.id.desc())
         .first()
     )
+    # Cover older submissions and invalidate results produced by old policies.
+    # A current completed result is reused without another provider request.
+    if ((not run or is_stale(db, run)) and case.status == "BCS_REVIEW"
+            and settings.AI_READ_ENABLED and settings.GEMINI_API_KEY):
+        run = enqueue_ai_review(db, case, user.id, automatic=True)
+    if (run and (run.result_json or {}).get("automatic") and (
+        run.status == "QUEUED" and (not run.lease_until or run.lease_until < datetime.utcnow()) or
+        run.status == "RUNNING" and run.lease_until and run.lease_until < datetime.utcnow()
+    )):
+        background_tasks.add_task(process_submitted_review, run.id)
     return {"run": serialize_run(db, run) if run else None}
 
 

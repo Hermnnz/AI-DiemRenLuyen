@@ -6,7 +6,7 @@ import httpx
 import pytest
 
 from api.app.review.gemini_read import GeminiReadError
-from api.app.review.gemini_transparency import GeminiTransparencyProvider
+from api.app.review.gemini_transparency import GeminiTransparencyProvider, SELF_REVIEW_PROMPT_VERSION
 
 
 DATA = b"synthetic-image"
@@ -88,7 +88,43 @@ def test_self_review_uses_separate_prompt_and_preserves_file_binding():
     assert result["status"] == "COMPLETED"
     assert result["confirmed"] is True
     assert result["confidence"] == 0.9
-    assert result["prompt_version"] == "ai-transparency-self-review-v1"
+    assert result["prompt_version"] == SELF_REVIEW_PROMPT_VERSION
+
+
+def test_insurance_policy_is_provided_to_primary_and_self_review_prompts():
+    from api.tests.test_evidence_policies import insurance_facts
+
+    facts = insurance_facts("Sinh viên A")
+    read = {"evidence_file_id": "file-1", "sha256": HASH, "readable": True,
+            "unreadable_reason": "", "facts": facts}
+    criterion = {**CRITERION, "code": "7a2", "clause_id": "49K14_1_V1:7a2",
+                 "term_window": {"start_on": "2026-01-01", "end_on": "2026-11-30"}}
+    contexts = []
+    def respond(request):
+        payload = json.loads(request.content)
+        text = payload["contents"][0]["parts"][0]["text"]
+        context = json.loads(text.split("\n\n", 1)[1].split("\n", 1)[1])
+        contexts.append(context)
+        assert context["evidence_policy"]["type"] == "HEALTH_INSURANCE"
+        assert ["valid_from"] in context["evidence_policy"]["required_fact_groups"]
+        assert ["activity_name"] not in context["evidence_policy"]["required_fact_groups"]
+        assert context["term_window"]["end_on"] == "2026-11-30"
+        answer = ({"confirmed": True, "confidence": 0.9, "reason": "Đã rà soát", "issues": []}
+                  if "previous_assessment" in context else
+                  {"verdict": "SUPPORTED", "confidence": 0.9, "reason": "BHYT phù hợp",
+                   "fact_indexes": list(range(5)), "visual_signals": [], "limitations": []})
+        return httpx.Response(200, json={"candidates": [{"content": {"parts": [{"text": json.dumps(answer)}]}}]})
+    async def run():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(respond)) as client:
+            provider = GeminiTransparencyProvider("test-key", client=client)
+            primary = await provider.assess(evidence_file_id="file-1", sha256=HASH, mime_type="image/png",
+                                            data=DATA, read_result=read, criterion=criterion,
+                                            student_name="Sinh viên A", term="HK1")
+            return await provider.self_review(evidence_file_id="file-1", sha256=HASH, mime_type="image/png",
+                                               data=DATA, read_result=read, criterion=criterion,
+                                               student_name="Sinh viên A", term="HK1", primary_assessment=primary)
+    assert asyncio.run(run())["confirmed"] is True
+    assert len(contexts) == 2
 
 
 def test_transparency_downgrades_unsupported_verdict_and_visual_concern():

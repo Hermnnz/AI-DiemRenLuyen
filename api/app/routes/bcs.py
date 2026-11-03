@@ -67,7 +67,7 @@ from api.app.services.scoring_service import parse_score, validate_score_bounds,
 from api.app.services.workflow_service import complete_bcs_case_review, publish_campaign, finalize_campaign, open_campaign
 from api.app.services.audit_service import log_audit
 from api.app.services.notification_service import send_notification
-from api.app.services.evidence_decision_service import required_evidence_file_ids
+from api.app.services.evidence_decision_service import required_evidence_file_ids, zero_score_if_all_evidence_rejected
 from api.app.services.auto_evidence_service import current_auto_accepted
 from api.app.services.final_handoff_service import final_score_fingerprint, handoff_status
 from api.app.services.draft_review_service import draft_review_status
@@ -485,6 +485,9 @@ def set_evidence_decision(
             reviewed_by=user.id, reviewed_at=now,
         )
         db.add(item)
+    db.flush()
+    score_adjustment = (zero_score_if_all_evidence_rejected(db, case, evidence.claim, user.id, now)
+                        if payload.decision == "REJECT_ITEM" else None)
     case.version += 1
     case.updated_at = now
     log_audit(
@@ -501,6 +504,7 @@ def set_evidence_decision(
     return SetEvidenceDecisionResponse(
         case_id=case.id, version=case.version, status=case.status,
         evidence_decision=_evidence_decision_schema(item),
+        score_adjustment=score_adjustment,
     )
 
 
@@ -611,7 +615,7 @@ def review_claim(
     db: Session = Depends(get_db),
 ):
     user, class_ids = auth_data
-    case = db.query(Case).filter(Case.id == caseId).first()
+    case = db.query(Case).filter(Case.id == caseId).with_for_update().first()
     if not case:
         raise AppError(status_code=404, code="NOT_FOUND", message="Không tìm thấy hồ sơ.")
 
@@ -664,8 +668,13 @@ def review_claim(
     now = datetime.now(timezone.utc)
     old_score = format_score(claim.approved_score)
     old_reason = claim.bcs_reason
+    adjustment = zero_score_if_all_evidence_rejected(db, case, claim, user.id, now)
+    effective_reason = payload.reason
+    if adjustment:
+        parsed_approved = parse_score(adjustment["approved_score"])
+        effective_reason = adjustment["bcs_reason"]
     claim.approved_score = parsed_approved
-    claim.bcs_reason = payload.reason
+    claim.bcs_reason = effective_reason
     claim.reviewed_by = user.id
     claim.reviewed_at = now
     if editing_draft:
@@ -689,7 +698,7 @@ def review_claim(
             db, campaign_id=campaign.id, case_id=case.id, action="DRAFT_SCORE_REVISED",
             actor_user_id=user.id,
             before_json={"criterion_id": crit.id, "approved_score": old_score, "reason": old_reason},
-            after_json={"criterion_id": crit.id, "approved_score": format_score(parsed_approved), "reason": payload.reason},
+            after_json={"criterion_id": crit.id, "approved_score": format_score(parsed_approved), "reason": effective_reason},
         )
     case.version += 1
     case.updated_at = now
@@ -768,23 +777,31 @@ def review_claims_batch(
         for criterion, claim, _, _ in prepared
     ]
     now = datetime.now(timezone.utc)
+    evidence_claim_ids = {item[0] for item in db.query(EvidenceFile.claim_id)
+                          .join(Claim, Claim.id == EvidenceFile.claim_id)
+                          .filter(Claim.case_id == case.id, EvidenceFile.is_current.is_(True)).all()}
+    after_scores = []
     for criterion, claim, score, reason in prepared:
         if claim is None:
             claim = Claim(case_id=case.id, criterion_id=criterion.id)
             db.add(claim)
+        if claim.id in evidence_claim_ids:
+            adjustment = zero_score_if_all_evidence_rejected(db, case, claim, user.id, now)
+            if adjustment:
+                score = parse_score(adjustment["approved_score"])
+                reason = adjustment["bcs_reason"]
         claim.approved_score = score
         claim.bcs_reason = reason or None
         claim.reviewed_by = user.id
         claim.reviewed_at = now
+        after_scores.append({"criterion_id": criterion.id, "approved_score": format_score(score),
+                             "reason": reason or None})
     case.version += 1
     case.updated_at = now
     log_audit(
         db, campaign_id=campaign.id, case_id=case.id, action="BCS_SCORES_REVIEWED_BATCH",
         actor_user_id=user.id, before_json={"scores": before_scores},
-        after_json={"scores": [
-            {"criterion_id": criterion.id, "approved_score": format_score(score), "reason": reason or None}
-            for criterion, _, score, reason in prepared
-        ], "version": case.version},
+        after_json={"scores": after_scores, "version": case.version},
     )
     db.commit()
     return ReviewClaimsBatchResponse(case_id=case.id, version=case.version, reviewed_count=len(criteria))

@@ -106,11 +106,18 @@ class SetEvidenceDecisionRequest(BaseModel):
     expected_version: int
 
 
+class EvidenceScoreAdjustment(BaseModel):
+    criterion_id: str
+    approved_score: str
+    bcs_reason: str
+
+
 class SetEvidenceDecisionResponse(BaseModel):
     case_id: str
     version: int
     status: str
     evidence_decision: BcsEvidenceDecisionSchema
+    score_adjustment: Optional[EvidenceScoreAdjustment] = None
 
 
 # Claim

@@ -22,7 +22,7 @@ from api.app.schemas.common import AppError, format_score
 from api.app.services.audit_service import log_audit
 from api.app.services.notification_service import send_notification
 from api.app.services.scoring_service import parse_score, validate_score_bounds, sum_scores
-from api.app.services.evidence_decision_service import required_evidence_file_ids
+from api.app.services.evidence_decision_service import required_evidence_file_ids, zero_score_if_all_evidence_rejected
 from api.app.services.draft_review_service import draft_review_status
 
 
@@ -327,6 +327,10 @@ def complete_bcs_case_review(
         crit = criteria_map.get(cl.criterion_id)
         if not crit:
             continue
+        if (evidence_by_claim.get(cl.id)
+                and all(all_decisions.get(file.id) == "REJECT_ITEM" for file in evidence_by_claim[cl.id])):
+            # Also repair decisions saved before automatic zeroing was added.
+            zero_score_if_all_evidence_rejected(db, case, cl, actor_user.id, now)
         if cl.approved_score is None:
             raise AppError(
                 status_code=422,
@@ -334,12 +338,6 @@ def complete_bcs_case_review(
                 message=f"Chưa chấm điểm duyệt cho tiêu chí {crit.code} - {crit.title}."
             )
         validate_score_bounds(cl.approved_score, crit.max_score, field_name=crit.code)
-        if (crit.requires_evidence and cl.approved_score > 0
-                and evidence_by_claim.get(cl.id)
-                and all(all_decisions.get(file.id) == "REJECT_ITEM"
-                        for file in evidence_by_claim[cl.id])):
-            raise AppError(status_code=422, code="REJECTED_EVIDENCE_WITH_POSITIVE_SCORE",
-                           message=f"Tiêu chí {crit.code} có toàn bộ minh chứng bị BCS từ chối. Hãy chỉnh điểm duyệt về 0 hoặc xem lại quyết định minh chứng.")
         
         # Reason mandatory if approved_score != self_score
         if cl.self_score is not None and cl.approved_score != cl.self_score:

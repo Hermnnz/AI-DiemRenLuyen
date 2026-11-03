@@ -388,6 +388,12 @@ export interface BcsCaseDetail {
   }[];
 }
 
+export interface EvidenceScoreAdjustment {
+  criterion_id: string;
+  approved_score: string;
+  bcs_reason: string;
+}
+
 export interface FinalHandoff {
   status: 'NOT_SENT' | 'SENT' | 'RECEIVED';
   snapshot_sha256: string | null;

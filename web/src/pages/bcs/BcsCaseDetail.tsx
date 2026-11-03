@@ -7,7 +7,7 @@ import { SafeFilePreviewModal } from '../../components/staff/SafeFilePreviewModa
 import { SupplementRequestModal } from '../../components/staff/SupplementRequestModal';
 import { PrintEvaluationFormModal } from '../../components/PrintEvaluationFormModal';
 import { api } from '../../api/client';
-import { AiReviewRun, BcsCaseDetail as BcsCaseDetailType, EvidenceFile, SupplementKind, Criterion, Claim, RuleCheckResponse, ScoreSuggestionResponse } from '../../api/types';
+import { AiReviewRun, BcsCaseDetail as BcsCaseDetailType, EvidenceFile, EvidenceScoreAdjustment, SupplementKind, Criterion, Claim, RuleCheckResponse, ScoreSuggestionResponse } from '../../api/types';
 import { staffStore } from '../../components/staff/mockStaffData';
 import {
   FileText,
@@ -259,15 +259,15 @@ export const BcsCaseDetail: React.FC = () => {
         };
       }
 
-      // Kiểm tra ngưỡng tin cậy (cả đối chiếu và self-review phải >= ngưỡng, vd: 80%)
-      const threshold = aiRun?.result?.auto_accept_threshold ?? 0.8;
+      // Both confidence checks use the threshold returned by the backend.
+      const threshold = aiRun?.result?.auto_accept_threshold ?? 0.7;
       const conf = assessment.confidence ?? 0;
       const selfConf = assessment.self_review?.confidence ?? 0;
       if (conf < threshold || (assessment.self_review && selfConf < threshold)) {
         const lowestConf = assessment.self_review && selfConf < conf ? selfConf : conf;
         return {
           title: `Độ tin cậy AI chưa đạt ngưỡng tự động duyệt (${Math.round(lowestConf * 100)}% < ${Math.round(threshold * 100)}%)`,
-          reason: assessment.reason || assessment.self_review?.reason || 'Độ tin cậy phân tích chưa đạt ngưỡng an toàn (≥ 80%) để hệ thống tự động chấp nhận.',
+          reason: assessment.reason || assessment.self_review?.reason || `Độ tin cậy phân tích chưa đạt ngưỡng ${Math.round(threshold * 100)}% để hệ thống tự động chấp nhận.`,
           badgeType: 'warning' as const,
         };
       }
@@ -374,13 +374,21 @@ export const BcsCaseDetail: React.FC = () => {
     setErrorMsg(null);
     setSuccessMsg(null);
     try {
-      await api.put(`/bcs/cases/${caseData.id}/evidence/${evidenceId}/decision`, {
+      const result = await api.put<{ score_adjustment?: EvidenceScoreAdjustment | null }>(`/bcs/cases/${caseData.id}/evidence/${evidenceId}/decision`, {
         decision, reason, expected_version: caseData.version,
       });
-      setSuccessMsg(decision === 'REQUEST_SUPPLEMENT'
+      await loadCase(decision !== 'REQUEST_SUPPLEMENT');
+      const adjustment = result.score_adjustment;
+      if (adjustment) {
+        // Refresh only the affected criterion; preserve drafts for other items.
+        setScores((previous) => ({ ...previous, [adjustment.criterion_id]: adjustment.approved_score }));
+        setReasons((previous) => ({ ...previous, [adjustment.criterion_id]: adjustment.bcs_reason }));
+      }
+      setSuccessMsg(adjustment
+        ? 'Đã từ chối toàn bộ minh chứng của tiêu chí và tự lưu điểm duyệt về 0. Tổng điểm đã được cập nhật.'
+        : decision === 'REQUEST_SUPPLEMENT'
         ? 'Đã gửi yêu cầu bổ sung minh chứng cho sinh viên.'
         : 'Đã lưu quyết định của BCS cho minh chứng.');
-      await loadCase(decision !== 'REQUEST_SUPPLEMENT');
     } catch (err: unknown) {
       const msg = (err as { error?: { message?: string }; message?: string })?.error?.message
         || (err as { message?: string })?.message || 'Không lưu được quyết định. Hãy tải lại hồ sơ rồi thử lại.';
@@ -1211,6 +1219,8 @@ export const BcsCaseDetail: React.FC = () => {
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', flex: 1 }}>
             {caseData.claims.map((claim) => {
               const isSystem = isSystemCriterion(claim.criterion);
+              const allRejected = claim.evidence.length > 0 && claim.evidence.every((file) =>
+                caseData.evidence_decisions?.some((item) => item.evidence_file_id === file.id && item.decision === 'REJECT_ITEM'));
               const currentScore = scores[claim.criterion.id] || '';
               const currentReason = reasons[claim.criterion.id] || '';
               const isDiff = !isSystem && (isReviewOpen || isProposedOrBeyond) && claim.self_score !== null && claim.self_score !== currentScore;
@@ -1272,7 +1282,7 @@ export const BcsCaseDetail: React.FC = () => {
                   </div>
 
                   {/* Quick Select Options for BCS (only if not system criterion) */}
-                  {!isSystem && claim.criterion.rule_config?.options && canEditScores && (
+                  {!isSystem && !allRejected && claim.criterion.rule_config?.options && canEditScores && (
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.3rem', marginTop: '0.2rem' }}>
                       {claim.criterion.rule_config.options.map((opt, i) => (
                         <button
@@ -1324,8 +1334,8 @@ export const BcsCaseDetail: React.FC = () => {
                     </label>
                     <input
                       type="text"
-                      disabled={isSystem || !canEditScores}
-                      readOnly={isSystem}
+                      disabled={isSystem || allRejected || !canEditScores}
+                      readOnly={isSystem || allRejected}
                       value={currentScore}
                       onChange={(e) => {
                         if (isSystem) return;

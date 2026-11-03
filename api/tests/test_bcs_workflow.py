@@ -203,8 +203,11 @@ def test_bcs_evidence_decision_requires_human_reason_and_audits_changes(client, 
     assert rejected.status_code == 200
     assert rejected.json()["evidence_decision"]["decision"] == "REJECT_ITEM"
     assert db.query(AuditEvent).filter(AuditEvent.case_id == case.id, AuditEvent.action == "BCS_EVIDENCE_DECIDED").count() == 2
-    # Rejecting a file is a human evidence decision, not an automatic score change.
-    assert all(item["approved_score"] is None for item in client.get(f"/api/v1/bcs/cases/{case.id}", cookies=auth_bcs["cookies"]).json()["claims"])
+    adjustment = rejected.json()["score_adjustment"]
+    assert adjustment["approved_score"] == "0.00"
+    claims = client.get(f"/api/v1/bcs/cases/{case.id}", cookies=auth_bcs["cookies"]).json()["claims"]
+    assert next(item for item in claims if item["criterion"]["id"] == adjustment["criterion_id"])["approved_score"] == "0.00"
+    assert all(item["approved_score"] is None for item in claims if item["criterion"]["id"] != adjustment["criterion_id"])
 
 
 def test_bcs_batch_review_saves_all_scores_once(client, seed_data, db):

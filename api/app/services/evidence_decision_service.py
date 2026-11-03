@@ -1,10 +1,53 @@
 """Identify current evidence requiring an explicit human decision."""
 
+from datetime import datetime
+from decimal import Decimal
+
 from sqlalchemy.orm import Session
 
 from api.app.models.entities import AiAgentStep, AiReviewRun, BcsEvidenceDecision, Case, Claim, EvidenceFile
 from api.app.services.rule_check_service import evaluate_case_rules
 from api.app.services.auto_evidence_service import current_auto_accepted
+from api.app.services.audit_service import log_audit
+from api.app.services.scoring_service import sum_scores
+
+
+def zero_score_if_all_evidence_rejected(
+    db: Session, case: Case, claim: Claim, reviewer_id: str, now: datetime,
+) -> dict | None:
+    """A final BCS rejection of every current file also decides the score as zero.
+
+    Other criteria and the student's original self-score remain unchanged.
+    Callers flush the evidence decision first and commit both changes together.
+    """
+    rows = (db.query(EvidenceFile.id, BcsEvidenceDecision.decision, BcsEvidenceDecision.reason)
+            .outerjoin(BcsEvidenceDecision, BcsEvidenceDecision.evidence_file_id == EvidenceFile.id)
+            .filter(EvidenceFile.claim_id == claim.id, EvidenceFile.is_current.is_(True))
+            .order_by(EvidenceFile.id).all())
+    if not rows or any(row.decision != "REJECT_ITEM" for row in rows):
+        return None
+    reasons = list(dict.fromkeys(row.reason.strip() for row in rows if row.reason and row.reason.strip()))
+    reason = "BCS đã từ chối toàn bộ minh chứng hiện tại của tiêu chí; tự động lưu điểm duyệt 0."
+    if reasons:
+        reason += " Căn cứ: " + " | ".join(reasons)
+    if claim.approved_score != Decimal("0.00") or claim.bcs_reason != reason:
+        before = {"approved_score": str(claim.approved_score) if claim.approved_score is not None else None,
+                  "bcs_reason": claim.bcs_reason}
+        claim.approved_score = Decimal("0.00")
+        claim.bcs_reason = reason
+        claim.reviewed_by = reviewer_id
+        claim.reviewed_at = now
+        if case.proposed_total is not None:
+            case.proposed_total = sum_scores([
+                item.approved_score for item in db.query(Claim).filter(Claim.case_id == case.id).all()
+            ])
+        log_audit(
+            db, campaign_id=case.campaign_id, case_id=case.id, actor_user_id=reviewer_id,
+            action="BCS_SCORE_ZEROED_AFTER_EVIDENCE_REJECTION", before_json=before,
+            after_json={"criterion_id": claim.criterion_id, "approved_score": "0.00",
+                        "bcs_reason": reason, "evidence_file_ids": [row.id for row in rows]},
+        )
+    return {"criterion_id": claim.criterion_id, "approved_score": "0.00", "bcs_reason": claim.bcs_reason}
 
 
 def required_evidence_file_ids(db: Session, case: Case) -> set[str]:

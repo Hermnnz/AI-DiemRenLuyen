@@ -181,13 +181,14 @@ export const BcsCaseDetail: React.FC = () => {
   // Aggregate all evidence files
   const allEvidenceFiles = useMemo(() => {
     if (!caseData) return [];
-    const files: (EvidenceFile & { criterionCode: string; criterionTitle: string })[] = [];
+    const files: (EvidenceFile & { criterionCode: string; criterionTitle: string; criterionId: string })[] = [];
     caseData.claims.forEach((claim) => {
       claim.evidence.forEach((ev) => {
         files.push({
           ...ev,
           criterionCode: claim.criterion.code,
           criterionTitle: claim.criterion.title,
+          criterionId: claim.criterion.id,
         });
       });
     });
@@ -216,18 +217,158 @@ export const BcsCaseDetail: React.FC = () => {
   const aiPending = aiPilotEnabled && !aiError && !aiRun?.stale &&
     (aiRunLoading || (!!aiRun && ['QUEUED', 'RUNNING'].includes(aiRun.status)));
 
-  const handleSaveEvidenceDecision = async (evidenceId: string) => {
+  const getAiVerificationReason = (fileId: string, criterionCode: string, criterionId: string) => {
+    // 1. Kiểm tra AI_READ (tệp không đọc được, mờ hoặc sai định dạng)
+    const readStep = aiRun?.steps?.find((s) => s.kind === 'AI_READ');
+    const readFile = readStep?.output?.files?.find((f) => f.evidence_file_id === fileId);
+    if (readFile && readFile.readable === false) {
+      return {
+        title: 'Tệp không thể đọc hoặc trích xuất nội dung',
+        reason: readFile.unreadable_reason || 'Ảnh/tài liệu bị mờ, không nhận diện được ký tự hoặc sai định dạng kỹ thuật.',
+        badgeType: 'danger' as const,
+      };
+    }
+
+    // 2. Kiểm tra AI_TRANSPARENCY (đối chiếu tiêu chí, độ tin cậy, can thiệp ảnh)
+    const transStep = aiRun?.steps?.find((s) => s.kind === 'AI_TRANSPARENCY');
+    const assessment = transStep?.output?.assessments?.find((a) => a.evidence_file_id === fileId);
+    if (assessment) {
+      // Dấu hiệu bất thường hình ảnh / nghi vấn giả mạo
+      const visualConcern = assessment.visual_signals?.find((s) => s.concern);
+      if (visualConcern || assessment.authenticity === 'SUSPICIOUS') {
+        return {
+          title: 'AI phát hiện bất thường hình ảnh / nghi vấn can thiệp',
+          reason: visualConcern?.description || 'Hình ảnh có dấu hiệu bị cắt ghép, chỉnh sửa hoặc tính xác thực không đảm bảo. Cần BCS đối chiếu trực tiếp tệp gốc.',
+          badgeType: 'danger' as const,
+        };
+      }
+
+      // Đánh giá verdict
+      if (assessment.verdict === 'FLAGGED') {
+        return {
+          title: 'AI đối chiếu: Không phù hợp tiêu chí',
+          reason: assessment.reason || 'Nội dung minh chứng không đáp ứng điều kiện quy định của tiêu chí.',
+          badgeType: 'warning' as const,
+        };
+      }
+      if (assessment.verdict === 'UNKNOWN') {
+        return {
+          title: 'AI đối chiếu: Chưa đủ thông tin xác thực',
+          reason: assessment.reason || 'Thiếu dữ kiện rõ ràng (ngày diễn ra, tên người nhận, đơn vị ban hành) để AI tự động công nhận.',
+          badgeType: 'warning' as const,
+        };
+      }
+
+      // Kiểm tra ngưỡng tin cậy (cả đối chiếu và self-review phải >= ngưỡng, vd: 80%)
+      const threshold = aiRun?.result?.auto_accept_threshold ?? 0.8;
+      const conf = assessment.confidence ?? 0;
+      const selfConf = assessment.self_review?.confidence ?? 0;
+      if (conf < threshold || (assessment.self_review && selfConf < threshold)) {
+        const lowestConf = assessment.self_review && selfConf < conf ? selfConf : conf;
+        return {
+          title: `Độ tin cậy AI chưa đạt ngưỡng tự động duyệt (${Math.round(lowestConf * 100)}% < ${Math.round(threshold * 100)}%)`,
+          reason: assessment.reason || assessment.self_review?.reason || 'Độ tin cậy phân tích chưa đạt ngưỡng an toàn (≥ 80%) để hệ thống tự động chấp nhận.',
+          badgeType: 'warning' as const,
+        };
+      }
+
+      if (assessment.self_review?.issues && assessment.self_review.issues.length > 0) {
+        return {
+          title: 'AI tự rà soát phát hiện vấn đề',
+          reason: assessment.self_review.issues.join('; '),
+          badgeType: 'warning' as const,
+        };
+      }
+
+      if (assessment.reason) {
+        return {
+          title: 'Kết quả phân tích AI',
+          reason: assessment.reason,
+          badgeType: 'info' as const,
+        };
+      }
+    }
+
+    // 3. Kiểm tra các cảnh báo từ hệ thống luật (Rule Check Findings)
+    if (visibleRuleChecks?.findings && visibleRuleChecks.findings.length > 0) {
+      const finding = visibleRuleChecks.findings.find(
+        (f) => f.evidence_file_ids?.includes(fileId) || f.criterion_code === criterionCode || f.criterion_id === criterionId
+      );
+      if (finding) {
+        return {
+          title: `Quy tắc kiểm tra tự động cảnh báo (${finding.level === 'FLAGGED' ? 'Cần xem xét' : 'Thiếu dữ liệu'})`,
+          reason: finding.message,
+          badgeType: 'warning' as const,
+        };
+      }
+    }
+
+    // 4. Tiêu chí đặc thù theo quy chế (8a, 8b, 8c)
+    if (['8a', '8b', '8c'].includes(criterionCode)) {
+      return {
+        title: 'Tiêu chí đặc thù bắt buộc BCS thẩm định',
+        reason: 'Theo quy chế, mục khen thưởng / công tác cán bộ lớp bắt buộc Ban cán sự lớp trực tiếp thẩm định minh chứng.',
+        badgeType: 'info' as const,
+      };
+    }
+
+    // 5. Gợi ý điểm rà soát thủ công
+    if (scoreSuggestions?.items) {
+      const item = scoreSuggestions.items.find(
+        (it) => it.criterion_code === criterionCode || it.evidence_file_ids?.includes(fileId)
+      );
+      if (item && item.status === 'REVIEW_REQUIRED' && item.reason) {
+        return {
+          title: 'Hệ thống yêu cầu rà soát thủ công',
+          reason: item.reason,
+          badgeType: 'warning' as const,
+        };
+      }
+    }
+
+    // 6. AI đang phân tích
+    if (aiPending) {
+      return {
+        title: 'Đang phân tích tự động',
+        reason: 'Hệ thống AI đang đọc tệp và đối chiếu quy chế...',
+        badgeType: 'info' as const,
+      };
+    }
+
+    // 7. Mặc định minh chứng cần thẩm định
+    return {
+      title: 'Minh chứng cần Ban cán sự thẩm định',
+      reason: 'Minh chứng chưa đáp ứng điều kiện tự động chấp nhận (cần đối chiếu ngày diễn ra, đơn vị cấp hoặc thẩm quyền xác nhận).',
+      badgeType: 'neutral' as const,
+    };
+  };
+
+  const handleSaveEvidenceDecision = async (evidenceId: string, aiReason?: string) => {
     if (!caseData || evidenceRequestLock.current || isDemoMode) return;
     const decision = evidenceChoices[evidenceId];
-    const reason = evidenceReasons[evidenceId]?.trim() || '';
     if (!decision) {
       setErrorMsg('Hãy chọn cách xử lý minh chứng trước khi lưu.');
       return;
     }
-    if (!reason) {
-      setErrorMsg('Hãy ghi căn cứ để BCS và sinh viên hiểu quyết định về minh chứng.');
-      return;
+
+    // Tự động thiết lập lý do căn cứ hợp lệ cho backend theo quyết định của BCS và kết quả kiểm chứng
+    let reason = '';
+    if (decision === 'ACCEPT') {
+      reason = 'BCS đã đối chiếu trực tiếp tệp gốc và xác nhận minh chứng phù hợp tiêu chí.';
+    } else if (decision === 'REQUEST_SUPPLEMENT') {
+      reason = aiReason
+        ? `Yêu cầu bổ sung minh chứng do: ${aiReason}`
+        : 'Yêu cầu sinh viên bổ sung minh chứng rõ ràng, hợp lệ theo quy chế.';
+    } else if (decision === 'REJECT_ITEM') {
+      reason = aiReason
+        ? `Từ chối minh chứng theo kết quả kiểm chứng: ${aiReason}`
+        : 'Từ chối tệp minh chứng không hợp lệ theo quy chế.';
+    } else if (decision === 'HOLD') {
+      reason = 'BCS tạm giữ tệp minh chứng để liên hệ đơn vị cấp hoặc GVCN xác minh thêm.';
+    } else {
+      reason = 'BCS đã rà soát và lưu quyết định xử lý minh chứng.';
     }
+
     evidenceRequestLock.current = true;
     setSavingEvidenceId(evidenceId);
     setErrorMsg(null);
@@ -843,35 +984,94 @@ export const BcsCaseDetail: React.FC = () => {
                     const required = caseData.evidence_review_required_ids?.includes(file.id) || false;
                     const autoAccepted = caseData.auto_accepted_evidence?.find((item) => item.evidence_file_id === file.id);
                     const editable = isReviewOpen && !isDemoMode;
+                    const aiReasonInfo = getAiVerificationReason(file.id, file.criterionCode, file.criterionId);
+
                     return (
                       <div style={{ borderTop: '1px solid #e2e8f0', marginTop: '0.5rem', paddingTop: '0.6rem', display: 'grid', gap: '0.45rem' }}>
-                        {autoAccepted && <div role="status" style={{ padding: '0.5rem', background: saved?.decision === 'REJECT_ITEM' ? '#fef2f2' : '#ecfdf5', border: saved?.decision === 'REJECT_ITEM' ? '1px solid #fecaca' : '1px solid #a7f3d0', borderRadius: '0.4rem', color: saved?.decision === 'REJECT_ITEM' ? '#991b1b' : '#065f46', fontSize: '0.78rem' }}>
-                          {saved?.decision === 'REJECT_ITEM' ? 'BCS đã bác kết luận AI tạm chấp nhận' : 'AI tạm chấp nhận minh chứng'} (đối chiếu {(autoAccepted.confidence * 100).toFixed(0)}%, tự rà soát {(autoAccepted.self_confidence * 100).toFixed(0)}%; cả hai phải từ {(autoAccepted.threshold * 100).toFixed(0)}% trở lên). BCS chốt điểm và ghi lý do nếu bác kết luận AI.
-                        </div>}
-                        {(required || saved || !autoAccepted) && <span style={{ fontSize: '0.78rem', fontWeight: 600, color: required ? '#9a3412' : '#475569' }}>
-                          {aiPending && required && !saved ? 'Đang chờ AI xét minh chứng' : <>{required && isReviewOpen ? 'Cần BCS kết luận' : 'Kết luận của BCS'}: {saved ? ({ ACCEPT: 'Chấp nhận', REQUEST_SUPPLEMENT: 'Đã yêu cầu bổ sung', REJECT_ITEM: 'Từ chối tệp', HOLD: 'Tạm giữ để xác minh' }[saved.decision]) : 'Chưa có'}</>}
-                        </span>}
-                        {saved && <p style={{ fontSize: '0.75rem', color: '#475569', margin: 0 }}>Lý do kiểm chứng: {saved.reason}</p>}
-                        {editable && autoAccepted && !reconsiderEvidenceIds.includes(file.id) && <button type="button" className="btn btn-secondary" onClick={() => {
-                          setReconsiderEvidenceIds((previous) => [...previous, file.id]);
-                          setEvidenceChoices((previous) => ({ ...previous, [file.id]: 'REJECT_ITEM' }));
-                        }}>{saved ? 'Sửa quyết định BCS' : 'BCS xem xét lại / bác kết luận AI'}</button>}
+                        {autoAccepted && (
+                          <div
+                            role="status"
+                            style={{
+                              padding: '0.5rem',
+                              background: saved?.decision === 'REJECT_ITEM' ? '#fef2f2' : '#ecfdf5',
+                              border: saved?.decision === 'REJECT_ITEM' ? '1px solid #fecaca' : '1px solid #a7f3d0',
+                              borderRadius: '0.4rem',
+                              color: saved?.decision === 'REJECT_ITEM' ? '#991b1b' : '#065f46',
+                              fontSize: '0.78rem',
+                            }}
+                          >
+                            {saved?.decision === 'REJECT_ITEM' ? 'BCS đã bác kết luận AI tạm chấp nhận' : 'AI tạm chấp nhận minh chứng'} (đối chiếu {(autoAccepted.confidence * 100).toFixed(0)}%, tự rà soát {(autoAccepted.self_confidence * 100).toFixed(0)}%; cả hai phải từ {(autoAccepted.threshold * 100).toFixed(0)}% trở lên). BCS chốt điểm và ghi lý do nếu bác kết luận AI.
+                          </div>
+                        )}
+
+                        {!autoAccepted && (
+                          <div
+                            style={{
+                              backgroundColor: aiReasonInfo.badgeType === 'danger' ? '#fef2f2' : '#fffbeb',
+                              border: `1px solid ${aiReasonInfo.badgeType === 'danger' ? '#fecaca' : '#fde68a'}`,
+                              borderLeft: `4px solid ${aiReasonInfo.badgeType === 'danger' ? '#ef4444' : '#f59e0b'}`,
+                              borderRadius: '4px',
+                              padding: '0.5rem 0.65rem',
+                              fontSize: '0.78rem',
+                            }}
+                          >
+                            <div
+                              style={{
+                                fontWeight: 700,
+                                color: aiReasonInfo.badgeType === 'danger' ? '#991b1b' : '#92400e',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '0.35rem',
+                                marginBottom: '0.2rem',
+                              }}
+                            >
+                              <AlertTriangle size={13} color={aiReasonInfo.badgeType === 'danger' ? '#dc2626' : '#d97706'} style={{ flexShrink: 0 }} />
+                              <span>Lý do cần kiểm chứng (từ Hệ thống AI):</span>
+                            </div>
+                            <div style={{ color: aiReasonInfo.badgeType === 'danger' ? '#7f1d1d' : '#78350f', lineHeight: 1.45 }}>
+                              <strong>{aiReasonInfo.title}:</strong> {aiReasonInfo.reason}
+                            </div>
+                          </div>
+                        )}
+
+                        {(required || saved || !autoAccepted) && (
+                          <span style={{ fontSize: '0.78rem', fontWeight: 600, color: required ? '#9a3412' : '#475569' }}>
+                            {aiPending && required && !saved
+                              ? 'Đang chờ AI xét minh chứng'
+                              : <>{required && isReviewOpen ? 'Cần BCS kết luận' : 'Kết luận của BCS'}: {saved ? ({ ACCEPT: 'Chấp nhận', REQUEST_SUPPLEMENT: 'Đã yêu cầu bổ sung', REJECT_ITEM: 'Từ chối tệp', HOLD: 'Tạm giữ để xác minh' }[saved.decision]) : 'Chưa có'}</>}
+                          </span>
+                        )}
+
+                        {saved && (
+                          <p style={{ fontSize: '0.75rem', color: '#475569', margin: 0 }}>
+                            Căn cứ đã lưu: {saved.reason}
+                          </p>
+                        )}
+
+                        {editable && autoAccepted && !reconsiderEvidenceIds.includes(file.id) && (
+                          <button
+                            type="button"
+                            className="btn btn-secondary"
+                            onClick={() => {
+                              setReconsiderEvidenceIds((previous) => [...previous, file.id]);
+                              setEvidenceChoices((previous) => ({ ...previous, [file.id]: 'REJECT_ITEM' }));
+                            }}
+                          >
+                            {saved ? 'Sửa quyết định BCS' : 'BCS xem xét lại / bác kết luận AI'}
+                          </button>
+                        )}
+
                         {editable && !aiPending && (!autoAccepted || reconsiderEvidenceIds.includes(file.id)) && (
                           <>
-                            <label htmlFor={`decision-${file.id}`} style={{ fontSize: '0.75rem', fontWeight: 600, color: '#334155' }}>Hướng xử lý minh chứng</label>
+                            <label htmlFor={`decision-${file.id}`} style={{ fontSize: '0.75rem', fontWeight: 600, color: '#334155' }}>
+                              Hướng xử lý minh chứng
+                            </label>
                             <select
                               id={`decision-${file.id}`}
                               value={evidenceChoices[file.id] || ''}
                               onChange={(event) => {
                                 const decision = event.target.value;
                                 setEvidenceChoices((prev) => ({ ...prev, [file.id]: decision }));
-                                if (decision === 'ACCEPT') {
-                                  setEvidenceReasons((prev) => {
-                                    const current = prev[file.id]?.trim();
-                                    if (current && (current !== saved?.reason || saved?.decision === 'ACCEPT')) return prev;
-                                    return { ...prev, [file.id]: `Thông tin trên tệp phù hợp tiêu chí [${file.criterionCode}] sau khi BCS đối chiếu.` };
-                                  });
-                                }
                               }}
                               disabled={savingEvidenceId !== null}
                               style={{
@@ -887,38 +1087,18 @@ export const BcsCaseDetail: React.FC = () => {
                             >
                               <option value="">Chọn quyết định</option>
                               <option value="ACCEPT">Chấp nhận tệp</option>
-                              <option value="REQUEST_SUPPLEMENT" disabled={caseData.rounds.proof >= caseData.rounds.proof_max}>Yêu cầu sinh viên bổ sung</option>
+                              <option value="REQUEST_SUPPLEMENT" disabled={caseData.rounds.proof >= caseData.rounds.proof_max}>
+                                Yêu cầu sinh viên bổ sung
+                              </option>
                               <option value="REJECT_ITEM">Từ chối tệp</option>
                               <option value="HOLD">Tạm giữ để xác minh</option>
                             </select>
 
-                            <label htmlFor={`reason-${file.id}`} style={{ fontSize: '0.75rem', fontWeight: 600, color: '#334155' }}>
-                              Lý do cần kiểm chứng
-                            </label>
-                            <textarea
-                              id={`reason-${file.id}`}
-                              rows={2}
-                              value={evidenceReasons[file.id] || ''}
-                              onChange={(event) => setEvidenceReasons((prev) => ({ ...prev, [file.id]: event.target.value }))}
-                              placeholder="Nêu lý do tệp chưa đạt / cần kiểm chứng (vd: vì sao không pass hoặc cần xác minh lại)..."
-                              disabled={savingEvidenceId !== null}
-                              style={{
-                                fontFamily: 'inherit',
-                                fontSize: '0.8rem',
-                                color: '#0f172a',
-                                backgroundColor: '#ffffff',
-                                border: '1px solid #cbd5e1',
-                                borderRadius: '4px',
-                                padding: '0.45rem 0.6rem',
-                                width: '100%',
-                                resize: 'vertical',
-                              }}
-                            />
                             <button
                               type="button"
                               className="btn btn-primary"
-                              disabled={savingEvidenceId !== null || !evidenceChoices[file.id] || !evidenceReasons[file.id]?.trim()}
-                              onClick={() => void handleSaveEvidenceDecision(file.id)}
+                              disabled={savingEvidenceId !== null || !evidenceChoices[file.id]}
+                              onClick={() => void handleSaveEvidenceDecision(file.id, aiReasonInfo.reason)}
                               style={{
                                 fontSize: '0.8rem',
                                 padding: '0.4rem 0.75rem',

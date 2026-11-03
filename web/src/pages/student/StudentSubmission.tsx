@@ -371,7 +371,7 @@ export const StudentSubmission: React.FC = () => {
       } else {
         setFeedbackMessage({
           type: 'success',
-          text: 'Nộp hồ sơ thành công! Hệ thống sẽ tự phân tích minh chứng bằng AI. Ban cán sự xử lý các trường hợp cần xem xét và chốt điểm.',
+          text: 'Nộp hồ sơ thành công! Ban cán sự xử lý các trường hợp cần xem xét và chốt điểm.',
         });
       }
     } catch (err: unknown) {

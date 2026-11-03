@@ -3,7 +3,7 @@ from typing import Dict, Any
 from sqlalchemy.orm import Session
 from api.app.models.entities import Campaign, Case, SupplementRequest, ClassMember
 from api.app.services.workflow_service import initialize_campaign_cases
-from api.app.services.notification_service import send_notification
+from api.app.services.notification_service import send_notification, format_notification_deadline
 from api.app.services.audit_service import log_audit
 
 
@@ -146,7 +146,7 @@ def run_deadline_tick(db: Session, target_time: datetime) -> Dict[str, Any]:
                 user_id=c.student_id,
                 type="APPEAL_REMINDER",
                 title="Nhắc hạn phản hồi điểm rèn luyện",
-                body=f"Bạn còn thời gian đến {app_dl.strftime('%d/%m/%Y %H:%M')} để xác nhận hoặc khiếu nại điểm rèn luyện dự kiến.",
+                body=f"Bạn còn thời gian đến {format_notification_deadline(app_dl)} để xác nhận hoặc khiếu nại điểm rèn luyện dự kiến.",
                 case_id=c.id,
                 dedup_key=f"appeal_reminder_{c.id}",
             )

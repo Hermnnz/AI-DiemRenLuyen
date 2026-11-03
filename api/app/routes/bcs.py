@@ -66,7 +66,7 @@ from api.app.services.auth_service import require_roles, verify_csrf
 from api.app.services.scoring_service import parse_score, validate_score_bounds, validate_criterion_levels, sum_scores
 from api.app.services.workflow_service import complete_bcs_case_review, publish_campaign, finalize_campaign, open_campaign
 from api.app.services.audit_service import log_audit
-from api.app.services.notification_service import send_notification
+from api.app.services.notification_service import send_notification, format_notification_deadline
 from api.app.services.evidence_decision_service import required_evidence_file_ids, zero_score_if_all_evidence_rejected
 from api.app.services.auto_evidence_service import current_auto_accepted
 from api.app.services.final_handoff_service import final_score_fingerprint, handoff_status
@@ -469,7 +469,7 @@ def set_evidence_decision(
         ))
         send_notification(
             db, user_id=case.student_id, type="NEEDS_PROOF", title="Yêu cầu bổ sung minh chứng",
-            body=f"BCS yêu cầu bạn bổ sung: {reason}. Hạn bổ sung: {deadline.strftime('%d/%m/%Y %H:%M')}.",
+            body=f"BCS yêu cầu bạn bổ sung: {reason}. Hạn bổ sung: {format_notification_deadline(deadline)}.",
             case_id=case.id, dedup_key=f"needs_proof_{case.id}_{case.proof_round}",
         )
 
@@ -578,7 +578,7 @@ def request_supplement(
         user_id=case.student_id,
         type=f"NEEDS_{payload.kind}",
         title=f"Yêu cầu bổ sung {'minh chứng' if payload.kind == 'PROOF' else 'thông tin'}",
-        body=f"BCS yêu cầu bạn bổ sung: {payload.reason}. Hạn bổ sung: {deadline.strftime('%d/%m/%Y %H:%M')}.",
+        body=f"BCS yêu cầu bạn bổ sung: {payload.reason}. Hạn bổ sung: {format_notification_deadline(deadline)}.",
         case_id=case.id,
         dedup_key=f"needs_{payload.kind.lower()}_{case.id}_{round_no}",
     )

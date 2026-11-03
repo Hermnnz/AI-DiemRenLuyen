@@ -31,7 +31,9 @@ async def process_submitted_review(run_id: str) -> None:
 
 async def _process_queued_review(run_id: str) -> None:
     deadline = monotonic() + BACKGROUND_REVIEW_SECONDS
-    for _ in range(3):
+    # The queue owns the retry/attempt limit. A poll which claims no work (for
+    # example, a timer waking just before the lease expires) is not an attempt.
+    while monotonic() < deadline:
         with SessionLocal() as db:
             run = db.query(AiReviewRun).filter(AiReviewRun.id == run_id).first()
             if not run or run.status not in {"QUEUED", "RUNNING"}:
@@ -44,6 +46,13 @@ async def _process_queued_review(run_id: str) -> None:
         if delay >= remaining:
             return
         if delay:
-            await sleep(delay)
+            await sleep(min(delay + 0.01, remaining))
+            # Timers can wake early; re-read the lease rather than spending a
+            # retry iteration on an ineligible job.
+            continue
         with SessionLocal() as db:
-            await run_ai_tick(db, target_run_id=run_id)
+            result = await run_ai_tick(db, target_run_id=run_id)
+        if not result["processed"]:
+            # Another worker may have claimed it, or the lease can equal now.
+            # Avoid a busy loop; the next read handles the updated job state.
+            await sleep(0.01)

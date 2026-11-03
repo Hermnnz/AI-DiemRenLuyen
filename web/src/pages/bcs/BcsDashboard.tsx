@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { StatusBadge } from '../../components/StatusBadge';
 import { Deadline } from '../../components/Deadline';
 import { api } from '../../api/client';
-import { BcsCampaignOverview, BcsCaseListItem, Campaign } from '../../api/types';
+import { BcsCampaignOverview, BcsCaseListItem, Campaign, NotificationItem } from '../../api/types';
 import { staffStore } from '../../components/staff/mockStaffData';
 import {
   fetchPriorityCase,
@@ -28,6 +28,7 @@ export const BcsDashboard: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [reviewAlerts, setReviewAlerts] = useState<NotificationItem[]>([]);
 
   const loadData = async () => {
     setLoading(true);
@@ -80,6 +81,23 @@ export const BcsDashboard: React.FC = () => {
     loadData();
   }, []);
 
+  useEffect(() => {
+    if (isDemoMode) return;
+    let active = true;
+    const refresh = async () => {
+      try {
+        const items = await api.get<NotificationItem[]>('/notifications');
+        if (active) setReviewAlerts(items.filter(item =>
+          item.type === 'BCS_EVIDENCE_REVIEW' && item.case_id && !item.read_at));
+      } catch {
+        // The dashboard remains usable if the notification request fails.
+      }
+    };
+    void refresh();
+    const timer = window.setInterval(() => { if (!document.hidden) void refresh(); }, 30000);
+    return () => { active = false; window.clearInterval(timer); };
+  }, []);
+
 
   if (loading && !campaign && !overview) {
     return (
@@ -115,6 +133,20 @@ export const BcsDashboard: React.FC = () => {
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
       {actionError && <div role="alert" className="card" style={{ color: '#991b1b', borderColor: '#fecaca' }}>{actionError}</div>}
       {actionMessage && <div role="status" className="card" style={{ color: '#065f46', borderColor: '#a7f3d0' }}>{actionMessage}</div>}
+      {reviewAlerts.length > 0 && (
+        <section className="card" aria-label="Thông báo minh chứng cần xem xét">
+          <h3>Minh chứng cần xem xét ({reviewAlerts.length})</h3>
+          {reviewAlerts.slice(0, 10).map(item => (
+            <div key={item.id} style={{ padding: '0.75rem 0', borderBottom: '1px solid #e2e8f0' }}>
+              <strong>{item.title}</strong>
+              <p>{item.body}</p>
+              <Link to={`/bcs/cases/${item.case_id}`} onClick={() => {
+                void api.post(`/notifications/${item.id}/read`, {}).catch(() => {});
+              }}>Mở hồ sơ</Link>
+            </div>
+          ))}
+        </section>
+      )}
       {/* 1. Header & Campaign Status */}
       <div
         style={{

@@ -23,6 +23,7 @@ from api.app.services.remote_storage import download_object, remote_storage_enab
 from api.app.services.rule_check_service import RULE_VERSION, evaluate_case_rules
 from api.app.services.score_decision_service import DECISION_VERSION, evaluate_score_suggestions
 from api.app.services.auto_evidence_service import select_auto_accepted
+from api.app.services.notification_service import notify_bcs_evidence_review
 
 
 PIPELINE_VERSION = "gemini-read-transparency-decision-v6-typed-evidence"
@@ -462,6 +463,7 @@ async def run_ai_tick(db: Session, limit: int = 1, target_run_id: str | None = N
                       after_json={"run_id": run.id, "status": run.status,
                                   "auto_accepted_evidence_file_ids": [item["evidence_file_id"] for item in
                                                                        (run.result_json or {}).get("auto_accepted_evidence", [])]})
+            notify_bcs_evidence_review(db, case, run.id)
             db.commit()
         except StaleReview:
             run = db.query(AiReviewRun).filter(AiReviewRun.id == run_id).one()
@@ -496,6 +498,8 @@ async def run_ai_tick(db: Session, limit: int = 1, target_run_id: str | None = N
                     step.status = "PENDING" if retryable else "FAILED"
                     step.error_code = run.error_code
             failed += 1
+            if not retryable:
+                notify_bcs_evidence_review(db, run.case, run.id)
             db.commit()
         processed += 1
     return {"processed": processed, "needs_human": needs_human, "stale": stale, "failed": failed}

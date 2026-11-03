@@ -7,7 +7,7 @@ import pytest
 from sqlalchemy.orm import sessionmaker
 
 from api.app.config import settings
-from api.app.models.entities import AiReviewRun, Claim, EvidenceFile
+from api.app.models.entities import AiReviewRun, Claim, EvidenceFile, Notification
 from api.tests.conftest import login_helper
 
 
@@ -111,6 +111,12 @@ def test_submission_runs_ai_without_bcs_click(client, db, automatic_submission, 
         assert decision["confidence"] >= 0.70 and decision["self_confidence"] >= 0.70
     assert calls[:2] == ["read", "assess"]
     bcs = login_helper(client, "bcs001")
+    alerts = client.get("/api/v1/notifications", cookies=bcs["cookies"]).json()
+    review_alerts = [item for item in alerts if item["type"] == "BCS_EVIDENCE_REVIEW"]
+    assert len(review_alerts) == (0 if accepted else 1)
+    if not accepted:
+        assert review_alerts[0]["case_id"] == case.id
+        assert "Còn 1 minh chứng" in review_alerts[0]["body"]
     detail = client.get(f"/api/v1/bcs/cases/{case.id}", cookies=bcs["cookies"]).json()
     assert (evidence.id not in detail["evidence_review_required_ids"]) is accepted
     assert all(item.approved_score is None for item in db.query(Claim).filter_by(case_id=case.id))
@@ -184,6 +190,28 @@ def test_automatic_worker_failure_does_not_fail_submission(client, db, automatic
     bcs = login_helper(client, "bcs001")
     detail = client.get(f"/api/v1/bcs/cases/{case.id}", cookies=bcs["cookies"]).json()
     assert evidence.id in detail["evidence_review_required_ids"]
+    assert db.query(Notification).filter_by(case_id=case.id, type="BCS_EVIDENCE_REVIEW").count() == 1
+
+
+def test_evidence_alert_groups_files_and_deduplicates_per_run(db, automatic_submission, seed_data):
+    from api.app.services.notification_service import notify_bcs_evidence_review
+
+    case, evidence, _, _, _ = automatic_submission
+    case.status = "BCS_REVIEW"
+    db.add(EvidenceFile(
+        claim_id=evidence.claim_id, storage_key="second.png", original_name="second.png",
+        mime_type="image/png", size_bytes=10, sha256="a" * 64,
+        uploaded_by=case.student_id, version_no=2, is_current=True,
+    ))
+    notify_bcs_evidence_review(db, case, "run-1")
+    notify_bcs_evidence_review(db, case, "run-1")
+    db.flush()
+    alert = db.query(Notification).filter_by(type="BCS_EVIDENCE_REVIEW").one()
+    assert alert.user_id == seed_data["users"]["bcs001"].id
+    assert alert.case_id == case.id and "Còn 2 minh chứng" in alert.body
+    notify_bcs_evidence_review(db, case, "run-2")
+    db.flush()
+    assert db.query(Notification).filter_by(type="BCS_EVIDENCE_REVIEW").count() == 2
 
 
 def test_automatic_retry_keeps_backoff_and_cached_primary(client, db, automatic_submission, monkeypatch):
@@ -208,7 +236,7 @@ def test_automatic_retry_keeps_backoff_and_cached_primary(client, db, automatic_
     assert response.status_code == 200
     db.expire_all()
     run = db.query(AiReviewRun).filter_by(case_id=case.id).one()
-    assert len(waits) == 1 and 0 < waits[0] <= 60
+    assert len(waits) == 1 and 0 < waits[0] <= 61
     assert calls == ["read", "assess", "self_review", "self_review"]
     assert run.attempt_count == 2 and run.error_code is None
     assert run.result_json["auto_accepted_evidence"][0]["evidence_file_id"] == evidence.id

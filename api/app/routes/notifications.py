@@ -1,9 +1,11 @@
 from datetime import datetime, timezone
 from typing import List
 from fastapi import APIRouter, Depends
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 from api.app.database import get_db
-from api.app.models.entities import Notification, User
+from api.app.models.entities import Campaign, Case, Notification, User
+from api.app.services.notification_service import BCS_EVIDENCE_REVIEW
 from api.app.schemas import (
     NotificationItem,
     ReadNotificationResponse,
@@ -20,10 +22,14 @@ def get_user_notifications(
     auth_data: tuple[User, list[str]] = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    user, _ = auth_data
+    user, class_ids = auth_data
+    allowed_cases = db.query(Case.id).join(Campaign, Case.campaign_id == Campaign.id).filter(
+        Campaign.class_id.in_(class_ids if user.role == "BCS" else [])
+    )
     notifications = (
         db.query(Notification)
         .filter(Notification.user_id == user.id)
+        .filter(or_(Notification.type != BCS_EVIDENCE_REVIEW, Notification.case_id.in_(allowed_cases)))
         .order_by(Notification.created_at.desc())
         .all()
     )

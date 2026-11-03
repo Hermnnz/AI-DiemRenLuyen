@@ -20,7 +20,7 @@ from api.app.review.provider import ManualReviewProvider
 from api.app.config import settings
 from api.app.schemas.common import AppError, format_score
 from api.app.services.audit_service import log_audit
-from api.app.services.notification_service import send_notification
+from api.app.services.notification_service import send_notification, format_notification_deadline
 from api.app.services.scoring_service import parse_score, validate_score_bounds, sum_scores
 from api.app.services.evidence_decision_service import required_evidence_file_ids, zero_score_if_all_evidence_rejected
 from api.app.services.draft_review_service import draft_review_status
@@ -215,7 +215,7 @@ def submit_student_case(
                 user_id=case.student_id,
                 type="NEEDS_INFO",
                 title="Yêu cầu bổ sung thông tin hồ sơ",
-                body=f"Hồ sơ của bạn thiếu minh chứng bắt buộc ({'; '.join(missing_items)}). Vui lòng bổ sung trước hạn {supp_deadline.strftime('%d/%m/%Y %H:%M')}.",
+                body=f"Hồ sơ của bạn thiếu minh chứng bắt buộc ({'; '.join(missing_items)}). Vui lòng bổ sung trước hạn {format_notification_deadline(supp_deadline)}.",
                 case_id=case.id,
                 dedup_key=f"needs_info_{case.id}_{case.info_round}",
             )
@@ -481,7 +481,7 @@ def publish_campaign(
                 user_id=c.student_id,
                 type="PUBLISHED",
                 title="Điểm rèn luyện dự kiến đã được công bố",
-                body=f"Điểm rèn luyện dự kiến của bạn là {c.proposed_total:.2f}. Hạn phản hồi/khiếu nại đến {appeal_deadline.strftime('%d/%m/%Y %H:%M')}.",
+                body=f"Điểm rèn luyện dự kiến của bạn là {c.proposed_total:.2f}. Hạn phản hồi/khiếu nại đến {format_notification_deadline(appeal_deadline)}.",
                 case_id=c.id,
                 dedup_key=f"published_{c.id}",
             )

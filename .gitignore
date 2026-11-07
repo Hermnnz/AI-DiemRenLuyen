@@ -60,3 +60,10 @@ Thumbs.db
 # Test output and evidence artifacts
 output/
 api/data/pilot_evaluation/evidence/
+
+# Local project documentation and acceptance tests
+/docs/
+/tests/
+/DAC_TA_CODE_WEB_VO_V1.md
+/Nhom8_TOBE_NangCao_BPMN20_v6.bpmn
+/PHAN_CHIA_CODE_SONG_SONG_V1.md

@@ -1,1 +1,0 @@
-# Package D test suite

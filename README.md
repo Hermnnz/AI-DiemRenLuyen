@@ -1,203 +1,99 @@
-# Hệ thống Chấm Điểm Rèn Luyện Sinh Viên (Phiên bản V1 Tích hợp Hoàn chỉnh)
+# Hệ thống chấm điểm rèn luyện sinh viên
 
-> **Cảnh báo dữ liệu minh họa:** Toàn bộ dữ liệu lớp học, tài khoản, tiêu chí và điểm số trong dự án này là **dữ liệu minh họa — không dùng để ra quyết định thật**. Hệ thống hoạt động theo cơ chế kiểm tra thủ công (AI chưa kích hoạt).
+Ứng dụng hỗ trợ sinh viên tự chấm và nộp minh chứng, BCS xử lý hồ sơ và công bố điểm, GVCN nhận bảng điểm chính thức. Bản chạy local dùng React/Vite, FastAPI và PostgreSQL. Tài khoản, tiêu chí và hồ sơ mẫu chỉ dùng để minh họa.
 
-Dự án này là hệ thống Web Chấm Điểm Rèn Luyện Sinh Viên V1 hoàn chỉnh đã tích hợp Frontend React với Backend FastAPI và cơ sở dữ liệu PostgreSQL thật, được phát triển theo tài liệu đặc tả `DAC_TA_CODE_WEB_VO_V1.md` và hướng dẫn tích hợp `output/PROMPT_SUA_TICH_HOP_GIAI_DOAN_2_5.md`.
+## 1. Chuẩn bị
 
----
+Cài Git, Python 3.11, Node.js 24 kèm npm và Docker có Compose v2 trở lên. Mở Docker trước khi chạy lệnh. Các cổng mặc định là `5432` (PostgreSQL), `8000` (API) và `5173` (web).
 
-## 1. Cấu trúc thư mục
-
-```text
-├── contracts/               # Hợp đồng API và dữ liệu
-│   ├── openapi.yaml         # Hợp đồng OpenAPI 3.0.3 đầy đủ mọi endpoint
-│   ├── states.md            # Máy trạng thái Campaign & Case
-│   └── seed-fixtures.json   # Dữ liệu seed và fixtures mẫu UI
-├── api/                     # Backend FastAPI
-│   ├── app/
-│   │   ├── main.py          # Entrypoint FastAPI, CORS, error handling
-│   │   ├── config.py        # Cấu hình môi trường
-│   │   ├── database.py      # SQLAlchemy engine & session
-│   │   ├── models/          # ORM models (15 bảng Mục 5)
-│   │   ├── routes/          # Routers (health, auth, student, bcs, admin, gvcn, files, notifications)
-│   │   ├── review/          # ReviewProvider & ManualReviewProvider
-│   │   └── jobs/tick.py     # Lệnh xử lý hạn deadline tick
-│   ├── alembic/             # Cấu hình và migration database
-│   ├── scripts/             # Seed database, demo e2e, verify live flow
-│   ├── tests/               # Backend tests (auth, rbac, workflow, health)
-│   └── requirements.txt
-├── web/                     # Frontend React + TypeScript + Vite
-│   ├── src/
-│   │   ├── api/types.ts     # TypeScript interfaces từ OpenAPI
-│   │   ├── api/client.ts    # Fetch client (CSRF token in-memory, HttpOnly cookies, auto-logout 401)
-│   │   ├── context/         # AuthContext quản lý session thực & restore phiên qua /auth/me
-│   │   ├── components/      # ProtectedRoute, AppLayout, StatusBadge, Deadline, ConfirmDialog
-│   │   ├── pages/           # Màn hình thật cho 4 vai trò (Student, BCS, GVCN, Admin)
-│   │   └── App.tsx          # Route registry & RBAC ProtectedRoute
-│   └── package.json
-├── tests/                   # Kiểm thử hợp đồng & 16 kịch bản chấp nhận Section 9
-│   ├── contract/            # Kiểm thử hợp đồng (OpenAPI, Fixtures, States)
-│   ├── e2e/                 # 16 kịch bản chấp nhận (Acceptance Tests Mục 9)
-│   └── run_tests.py         # Test runner tổng hợp
-├── storage/                 # Thư mục lưu trữ tệp minh chứng local
-├── compose.yaml             # Docker Compose chạy PostgreSQL
-├── .env.example             # Biến môi trường mẫu
-└── README.md
+```sh
+git clone --branch master https://github.com/Hermnnz/AI-DiemRenLuyen.git
+cd AI-DiemRenLuyen
 ```
 
----
+## 2. Khởi động PostgreSQL và API
 
-## 2. Hướng dẫn Cài đặt & Khởi động Hệ thống
+Chạy ở thư mục gốc của bản clone. Các lệnh dưới đây tạo cấu hình cho lần cài đầu tiên. Nếu đã có `.env`, giữ lại cấu hình của bạn.
 
-### Chế độ hoạt động (Live Mode vs Demo Mock Mode)
-- **Live Mode (Mặc định):** Frontend gọi trực tiếp Backend FastAPI và cơ sở dữ liệu PostgreSQL qua HttpOnly cookie session và CSRF token. Nếu backend mất kết nối hoặc API trả về lỗi, hệ thống hiển thị thông báo lỗi rõ ràng và nút "Thử lại", **tuyệt đối không âm thầm fallback sang mock**. Dropdown chuyển vai trò bị ẩn hoàn toàn để đảm bảo tính phân quyền thực tế.
-- **Demo Mode (Tùy chọn):** Khi cần trình diễn ngoại tuyến không cần backend, khởi động frontend với biến môi trường `VITE_DEMO_MODE=true`. Lúc này giao diện sẽ kích hoạt thanh chuyển kịch bản giả lập và gắn nhãn `[DEMO MOCK]`.
+### Windows PowerShell — Terminal 1
 
----
-
-### Bước 1: Khởi động cơ sở dữ liệu PostgreSQL
-Khởi động container PostgreSQL qua Docker:
-```bash
-docker compose up -d db
-```
-
-### Bước 2: Cài đặt và Khởi động Backend (FastAPI)
-Tạo môi trường ảo Python và cài đặt thư viện:
-```bash
+```powershell
+Copy-Item .env.example .env
+docker compose up -d --wait db
 python -m venv .venv
-# Trên Windows:
-.venv\Scripts\activate
-# Trên Linux/macOS:
-source .venv/bin/activate
-
-pip install -r api/requirements.txt
+.\.venv\Scripts\python.exe -m pip install -r api/requirements.txt
+.\.venv\Scripts\python.exe -m alembic -c api/alembic.ini upgrade head
+$env:DEMO_PASSWORD = "Demo@123456"
+.\.venv\Scripts\python.exe -m api.scripts.seed
+.\.venv\Scripts\python.exe -m uvicorn api.app.main:app --host 127.0.0.1 --port 8000
 ```
 
-Sao chép cấu hình môi trường:
+### macOS/Linux — Terminal 1
+
 ```bash
 cp .env.example .env
+docker compose up -d --wait db
+python3 -m venv .venv
+.venv/bin/python -m pip install -r api/requirements.txt
+.venv/bin/python -m alembic -c api/alembic.ini upgrade head
+DEMO_PASSWORD='Demo@123456' .venv/bin/python -m api.scripts.seed
+.venv/bin/python -m uvicorn api.app.main:app --host 127.0.0.1 --port 8000
 ```
 
-Thiết lập mật khẩu demo qua biến môi trường (khuyến nghị đổi mật khẩu an toàn khi triển khai):
-```bash
-# Trên Windows PowerShell:
-$env:DEMO_PASSWORD="YourPasswordHere"
-# Trên Linux/macOS:
-export DEMO_PASSWORD="YourPasswordHere"
+Giữ Terminal 1 mở. Kiểm tra [API health](http://localhost:8000/api/v1/health). Nếu migration hoặc seed báo lỗi, kiểm tra `docker compose ps` và `docker compose logs db` trước khi chạy tiếp.
+
+Nếu máy đã có PostgreSQL ở cổng `5432`, đổi `POSTGRES_PORT` và cổng trong `DATABASE_URL` của `.env` sang cùng một cổng trống, ví dụ `55436`. Khi chạy song song nhiều bản clone, dùng một tên dự án Compose riêng, ví dụ `docker compose -p drl-local-check up -d --wait db`. Giải phóng cổng `8000` và `5173` trước khi khởi động API và web.
+
+## 3. Khởi động web
+
+Mở **Terminal 2** ở thư mục gốc của bản clone và giữ cả hai terminal chạy.
+
+```sh
+npm ci --prefix web
+npm run dev --prefix web -- --strictPort
 ```
 
-Chạy migration và seed dữ liệu mẫu:
-```bash
-# Chạy migration database
-alembic -c api/alembic.ini upgrade head
+Nếu PowerShell chặn `npm.ps1`, dùng `npm.cmd` thay cho `npm` trong hai lệnh. Truy cập [trang đăng nhập](http://localhost:5173/login). Vite chuyển tiếp `/api` tới API local ở cổng `8000`.
 
-# Chạy seed dữ liệu (Idempotent - an toàn khi chạy lại nhiều lần)
-python -m api.scripts.seed
-```
+## 4. Đăng nhập và thử quy trình
 
-Khởi động Backend server:
-```bash
-uvicorn api.app.main:app --host 0.0.0.0 --port 8000 --reload
-```
-Kiểm tra sức khỏe Backend: `GET http://localhost:8000/api/v1/health`
+| Vai trò | Tài khoản mẫu |
+| --- | --- |
+| Quản trị viên | `admin001` |
+| Ban cán sự | `bcs001` |
+| Sinh viên | `sv001`, `sv002`, `sv003`, `sv004` |
+| Giáo viên chủ nhiệm | `gvcn001` |
 
-### Bước 3: Cài đặt và Khởi động Frontend (React / Vite)
-```bash
-cd web
-npm install
+Trên cơ sở dữ liệu mới, các tài khoản dùng mật khẩu đã đặt ở bước seed. Với lệnh trên, mật khẩu là `Demo@123456`. Seed có thể chạy lại và giữ mật khẩu của các tài khoản đã tồn tại.
 
-# Khởi động ở chế độ Live kết nối Backend thực (Mặc định):
-npm run dev
+1. Đăng nhập bằng `admin001`. Đợt mẫu được tạo ở trạng thái nháp. Vào quản lý đợt, sửa hạn nộp sang tương lai nếu ngày mẫu đã qua, rồi mở đợt.
+2. Đăng xuất và đăng nhập bằng `sv001`. Mở màn hình tự chấm để kiểm tra đã thấy đợt mở và danh sách tiêu chí.
+3. Dùng `bcs001` để xem hàng chờ duyệt. Dùng `gvcn001` để xem bảng điểm sau khi lớp chốt điểm và bàn giao.
 
-# (Tùy chọn) Khởi động ở chế độ Demo Mock độc lập:
-# $env:VITE_DEMO_MODE="true"; npm run dev
-```
-Truy cập giao diện Web: `http://localhost:5173`
+### AI và cấu hình trình diễn
 
----
+- Mã nguồn có hai bước AI để đọc minh chứng và đối chiếu với tiêu chí. BCS vẫn chịu trách nhiệm duyệt điểm và xử lý hồ sơ ngoại lệ.
+- Cấu hình local mặc định lưu tệp trong `storage/` và tắt hai bước Gemini (`AI_READ_ENABLED=false`, `AI_TRANSPARENCY_ENABLED=false`). Với cấu hình này có thể chạy quy trình duyệt thủ công bằng tài khoản mẫu.
+- Khi bật cả hai bước AI, cấp `GEMINI_API_KEY` và bật `AI_AUTO_ACCEPT_ENABLED`, ngưỡng mặc định là `AI_AUTO_ACCEPT_THRESHOLD=0.70`. Bản trình diễn kiểm tra cả điểm đối chiếu và điểm tự rà soát từ 70%, cùng các điều kiện về minh chứng. Xem [các biến cấu hình](.env.example).
+- Lượt Playwright tổng hợp ngày 04/11/2026 dùng PostgreSQL riêng và AI mô phỏng. Một lượt thử Gemini thật riêng đã kiểm tra đường đọc, đối chiếu và BCS bác kết luận trên một minh chứng. Kết quả này mô tả tích hợp đã thử nghiệm.
 
-## 3. Danh sách Tài khoản Khởi tạo
+## 5. Kiểm thử và dừng hệ thống
 
-Mật khẩu khởi tạo cho toàn bộ tài khoản được thiết lập thông qua biến môi trường `DEMO_PASSWORD` khi chạy lệnh seed (mặc định trong tệp môi trường mẫu: `Demo@123456`). Khi đăng nhập trên giao diện web, người dùng phải nhập đúng mật khẩu này.
+Chạy từ thư mục gốc. Dùng `.venv/bin/python` thay cho đường dẫn Python bên dưới nếu dùng macOS/Linux.
 
-| Vai trò | Tên đăng nhập | Họ và tên | Chức năng chính |
-|---|---|---|---|
-| **STUDENT** | `sv001` | Nguyễn Văn An | Tự chấm, tải minh chứng file thực, nộp hồ sơ, khiếu nại |
-| **STUDENT** | `sv002` | Trần Thị Bình | Sinh viên cùng lớp LOP-DEMO |
-| **STUDENT** | `sv003` | Lê Văn Cường | Sinh viên cùng lớp LOP-DEMO |
-| **BCS** | `bcs001` | Phạm Thị Dung (Lớp trưởng) | Hàng chờ 3 vùng, duyệt điểm, biên bản họp, công bố điểm |
-| **GVCN** | `gvcn001` | ThS. Hoàng Văn Em (GVCN) | Xem và xuất bảng điểm chính thức CSV |
-| **ADMIN** | `admin001` | Quản trị viên Hệ thống | Cấu hình đợt đánh giá, hạn nộp, tiêu chí |
-
----
-
-## 4. Lệnh Deadline Tick
-
-Lệnh xử lý hạn tự động có thể chạy thủ công hoặc lập lịch định kỳ qua cron:
-```bash
-# Sử dụng thời gian hiện tại
-python -m api.app.jobs.tick
-
-# Giả lập thời gian cụ thể (ISO8601 UTC)
-python -m api.app.jobs.tick --now 2026-10-25T01:00:00Z
-```
-
----
-
-## 5. Hướng dẫn Chạy Kiểm thử & Xác minh
-
-### 1. Kiểm thử Toàn bộ Hợp đồng & 16 Kịch bản Chấp nhận (Section 9):
-```bash
-# Chạy tất cả kiểm thử hợp đồng và e2e
-python tests/run_tests.py --mode all
-
-# Hoặc chạy kiểm thử hợp đồng riêng
-python -m pytest tests/contract
-
-# Chạy 16 kịch bản chấp nhận riêng
-$env:RUN_ACCEPTANCE_TESTS="1"; python -m pytest tests/e2e
-```
-
-### 2. Kiểm thử Đơn vị Backend:
-```bash
-python -m pytest api/tests
-```
-
-### 3. Kiểm thử Frontend (Unit, Mock Logic & Live Integration/Route Guard):
-```bash
+```powershell
+.\.venv\Scripts\python.exe -m pytest api/tests
 npm run test --prefix web
-```
-
-### 4. Build Kiểm tra Kiểu TypeScript & Bundle Frontend:
-```bash
 npm run build --prefix web
 ```
 
-### 5. Chạy Script Kiểm chứng Tích hợp Luồng Thực (Live Flow Verification):
-```bash
-python api/scripts/verify_live_flow.py
-```
-Script này tự động kiểm tra toàn bộ chu trình 10 bước qua API và cơ sở dữ liệu thực: Đăng nhập sai pass bị 401 -> Đăng nhập đúng giữ cookie/CSRF -> sv001 vào /bcs bị 403 -> sv001 tự chấm/upload/nộp -> BCS duyệt điểm -> BCS ghi họp/công bố -> sv001 khiếu nại -> BCS giải quyết/chốt -> GVCN tải CSV -> Đăng xuất chặn route.
+Để dừng web và API, nhấn Ctrl+C ở từng terminal, rồi chạy `docker compose down` để dừng PostgreSQL. Nếu đã dùng `-p`, dùng lại cùng tên dự án.
 
-### 6. Kiểm thử Toàn diện qua Trình duyệt Thực (Giai đoạn 3 Playwright Browser Suite):
-```bash
-# Cài đặt Playwright (nếu chưa có)
-pip install playwright
+Thư mục `docs/`, `tests/` tại gốc dự án và các tài liệu đặc tả, phân chia công việc, BPMN được giữ riêng ở local và được loại trừ bằng `.gitignore`.
 
-# Đảm bảo Backend (port 8000) và Frontend (port 5173) đang chạy, sau đó chạy:
-python api/scripts/browser_phase3_run.py
-```
-Kịch bản tự động điều khiển Google Chrome thực hiện chu trình kiểm thử đầu-cuối:
-- **Xác thực và Phân quyền UI:** Kiểm tra bắt lỗi 401 khi nhập sai mật khẩu; kiểm tra Route Guard chặn sinh viên vào `/bcs` hoặc `/admin/campaigns` (thẻ đỏ 403 Forbidden).
-- **Rà soát Giao diện Responsive:** Đo lường tự động trên 3 độ phân giải thực tế (Mobile 390px, Tablet 768px, Desktop BCS 1366px), cam kết không phát sinh hiện tượng tràn ngang màn hình (`scrollWidth <= innerWidth`).
-- **Chu trình Đầy đủ 4 Vai trò (Database Thực):**
-  1. `ADMIN` (`admin001`): Đăng nhập, mở đợt đánh giá trực tiếp qua UI.
-  2. `STUDENT` (`sv001`): Form tự chấm, bắt lỗi tải file sai định dạng `.txt`, tải file thực PDF và PNG, lưu nháp, nộp hồ sơ vào hàng chờ `BCS_REVIEW`.
-  3. `STUDENT` (`sv002` & `sv003`): Kiểm chứng cách ly dữ liệu tuyệt đối (sv002 chỉ thấy hồ sơ của mình, không thấy sv001), nộp hồ sơ.
-  4. `BCS` (`bcs001`): Xem hàng chờ cả lớp; mở modal xem tệp an toàn; chấm duyệt 3 vùng; cổng công bố điểm khóa khi chưa đủ 2 cuộc họp; ghi nhận biên bản Họp BCS và Họp Toàn thể Lớp; mở khóa và công bố điểm (`PUBLISHED`).
-  5. `STUDENT` (`sv001`): Xem điểm dự kiến và lý do BCS; gửi đơn khiếu nại (`APPEALED`); kiểm chứng loại trừ tương hỗ (vô hiệu hóa nút Đồng ý).
-  6. `STUDENT` (`sv002` & `sv003`): Xác nhận đồng ý với điểm dự kiến (`ACCEPTED`).
-  7. `BCS` (`bcs001`): Giải quyết khiếu nại của sv001 (`RESOLVED`); chốt điểm chính thức toàn bộ lớp (`FINALIZED`).
-  8. `GVCN` (`gvcn001`): Xem bảng điểm chính thức toàn bộ sinh viên, tải tệp CSV và xác minh nội dung dữ liệu UTF-8 BOM.
-- **Giám sát Console Browser:** Ghi nhận 0 lỗi JavaScript/runtime crash (`0 console errors`).
+| Thư mục | Nội dung |
+| --- | --- |
+| `api/` | FastAPI, migration Alembic và script seed |
+| `web/` | Giao diện React và cấu hình Vite |
+| `contracts/` | Hợp đồng API, trạng thái và dữ liệu mẫu |
 
